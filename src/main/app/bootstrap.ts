@@ -27,7 +27,13 @@ import {
   resolveStartupTriggerKey
 } from '../hotkeys/triggerKey'
 import { registerMainIpc } from '../ipc/registerMainIpc'
-import type { MainAppStatePayload, ThemeMode } from '../ipc/channels'
+import type {
+  MainAppStatePayload,
+  PermissionKind,
+  PermissionStatePayload,
+  PermissionStatus,
+  ThemeMode
+} from '../ipc/channels'
 import { getDebugLogPath, logDebug } from '../logging/debugLogger'
 import { createEphemeralSessionStore } from '../orchestration/ephemeralSessionStore'
 import { createVoicePipeline } from '../orchestration/voicePipeline'
@@ -43,11 +49,25 @@ const ACCESSIBILITY_PERMISSION_RECHECK_INTERVAL_MS = 30_000
 const ACCESSIBILITY_PERMISSION_PROMPT_COOLDOWN_MS = 5 * 60_000
 const ACCESSIBILITY_SETTINGS_URL =
   'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'
+const MICROPHONE_SETTINGS_URL =
+  'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'
 let tray: Tray | null = null
 
 type ResolvedIconAsset = {
   icon: NativeImage
   sourcePath: string
+}
+
+type PermissionSnapshot = {
+  kind: PermissionKind
+  granted: boolean
+  status: PermissionStatus
+}
+
+type AppPermissionSnapshot = {
+  hasMissing: boolean
+  accessibility: PermissionSnapshot
+  microphone: PermissionSnapshot
 }
 
 function bringWindowToFront(window: BrowserWindow): void {
@@ -110,6 +130,95 @@ function resolveTrayIcon(): ResolvedIconAsset {
   }
 }
 
+function buildPermissionState(snapshot: PermissionSnapshot): PermissionStatePayload {
+  if (snapshot.kind === 'accessibility') {
+    return snapshot.granted
+      ? {
+          kind: snapshot.kind,
+          granted: true,
+          status: snapshot.status,
+          label: 'Accessibility enabled',
+          description: 'TIA Voice can listen for the global push-to-talk key.',
+          ctaLabel: 'Open Accessibility Settings'
+        }
+      : {
+          kind: snapshot.kind,
+          granted: false,
+          status: snapshot.status,
+          label: 'Accessibility required',
+          description:
+            'Enable Accessibility in System Settings so TIA Voice can listen for your global push-to-talk key.',
+          ctaLabel: 'Open Accessibility Settings'
+        }
+  }
+
+  return snapshot.granted
+    ? {
+        kind: snapshot.kind,
+        granted: true,
+        status: snapshot.status,
+        label: 'Microphone enabled',
+        description: 'TIA Voice can access the microphone for dictation.',
+        ctaLabel: 'Open Microphone Settings'
+      }
+    : {
+        kind: snapshot.kind,
+        granted: false,
+        status: snapshot.status,
+        label:
+          snapshot.status === 'not-determined'
+            ? 'Microphone permission pending'
+            : 'Microphone required',
+        description: 'Enable microphone access in System Settings so TIA Voice can capture speech.',
+        ctaLabel: 'Open Microphone Settings'
+      }
+}
+
+function getAccessibilityPermissionSnapshot(): PermissionSnapshot {
+  return {
+    kind: 'accessibility',
+    granted: checkAccessibilityPermission(false),
+    status: checkAccessibilityPermission(false) ? 'granted' : 'denied'
+  }
+}
+
+function getMicrophonePermissionSnapshot(): PermissionSnapshot {
+  if (process.platform !== 'darwin') {
+    return {
+      kind: 'microphone',
+      granted: true,
+      status: 'granted'
+    }
+  }
+
+  try {
+    const status = systemPreferences.getMediaAccessStatus('microphone')
+    return {
+      kind: 'microphone',
+      granted: status === 'granted',
+      status
+    }
+  } catch (error) {
+    logDebug('microphone', 'Unable to read microphone permission state', { error })
+    return {
+      kind: 'microphone',
+      granted: false,
+      status: 'unknown'
+    }
+  }
+}
+
+function getAppPermissionSnapshot(): AppPermissionSnapshot {
+  const accessibility = getAccessibilityPermissionSnapshot()
+  const microphone = getMicrophonePermissionSnapshot()
+
+  return {
+    hasMissing: !accessibility.granted || !microphone.granted,
+    accessibility,
+    microphone
+  }
+}
+
 function buildMainAppState(input: {
   registeredHotkey: TriggerKey | null
   hotkeyReady: boolean
@@ -119,6 +228,7 @@ function buildMainAppState(input: {
   dashscopeKeyLabel: string | null
   onboardingCompleted: boolean
   onboardingVisible: boolean
+  permissions: AppPermissionSnapshot
   history: Array<{
     id: string
     createdAt: number
@@ -129,6 +239,11 @@ function buildMainAppState(input: {
     audio?: { fileName: string }
   }>
 }): MainAppStatePayload {
+  const missingPermissions = [
+    input.permissions.accessibility.granted ? null : 'Accessibility',
+    input.permissions.microphone.granted ? null : 'Microphone'
+  ].filter(Boolean) as string[]
+
   return {
     hotkeyHint:
       input.hotkeyReady && input.registeredHotkey
@@ -153,23 +268,34 @@ function buildMainAppState(input: {
     },
     themeMode: input.themeMode,
     voiceBackendStatus:
-      input.dashscopeConfigured && input.onboardingCompleted
+      input.dashscopeConfigured && input.onboardingCompleted && !input.permissions.hasMissing
         ? {
             ready: true,
             label: 'Voice typing ready',
             detail: 'Your DashScope key is configured and ready for voice typing.'
           }
-        : input.dashscopeConfigured
+        : input.dashscopeConfigured && input.onboardingCompleted
           ? {
               ready: false,
-              label: 'Finish setup to enable voice typing',
-              detail: 'Skip or finish setup to turn on the global voice typing workflow.'
+              label: 'Permissions required',
+              detail: `Enable ${missingPermissions.join(' and ')} in System Settings to finish voice typing setup.`
             }
-          : {
-              ready: false,
-              label: 'DashScope key required',
-              detail: 'Add your DashScope API key in onboarding or settings to start dictating.'
-            },
+          : input.dashscopeConfigured
+            ? {
+                ready: false,
+                label: 'Finish setup to enable voice typing',
+                detail: 'Skip or finish setup to turn on the global voice typing workflow.'
+              }
+            : {
+                ready: false,
+                label: 'DashScope key required',
+                detail: 'Add your DashScope API key in onboarding or settings to start dictating.'
+              },
+    permissions: {
+      hasMissing: input.permissions.hasMissing,
+      accessibility: buildPermissionState(input.permissions.accessibility),
+      microphone: buildPermissionState(input.permissions.microphone)
+    },
     history: input.history.map((item) => ({
       id: item.id,
       createdAt: item.createdAt,
@@ -191,6 +317,28 @@ function checkAccessibilityPermission(prompt: boolean): boolean {
     return systemPreferences.isTrustedAccessibilityClient(prompt)
   } catch (error) {
     logDebug('accessibility', 'Unable to read accessibility permission state', { error, prompt })
+    return false
+  }
+}
+
+async function checkMicrophonePermission(prompt: boolean): Promise<boolean> {
+  if (process.platform !== 'darwin') {
+    return true
+  }
+
+  try {
+    const status = systemPreferences.getMediaAccessStatus('microphone')
+    if (status === 'granted') {
+      return true
+    }
+
+    if (prompt && status === 'not-determined') {
+      return systemPreferences.askForMediaAccess('microphone')
+    }
+
+    return false
+  } catch (error) {
+    logDebug('microphone', 'Unable to read microphone permission state', { error, prompt })
     return false
   }
 }
@@ -238,6 +386,9 @@ export async function bootstrapApplication(): Promise<void> {
   let accessibilityDialogVisible = false
   let accessibilityCheckInFlight: Promise<void> | null = null
   let lastAccessibilityPromptAt = 0
+  let microphoneDialogVisible = false
+  let microphoneCheckInFlight: Promise<void> | null = null
+  let lastMicrophonePromptAt = 0
 
   const bringMainWindowToFront = (): void => {
     bringWindowToFront(mainAppWindow)
@@ -267,12 +418,18 @@ export async function bootstrapApplication(): Promise<void> {
     return firstFocusableWindow ?? null
   }
 
+  const openPermissionSettingsPanel = async (permission: PermissionKind): Promise<void> => {
+    const url =
+      permission === 'accessibility' ? ACCESSIBILITY_SETTINGS_URL : MICROPHONE_SETTINGS_URL
+    await shell.openExternal(url)
+  }
+
   const openAccessibilitySettingsPanel = async (): Promise<void> => {
     const trustedAfterPrompt = checkAccessibilityPermission(true)
     logDebug('accessibility', 'Requested accessibility trust prompt', {
       trustedAfterPrompt
     })
-    await shell.openExternal(ACCESSIBILITY_SETTINGS_URL)
+    await openPermissionSettingsPanel('accessibility')
   }
 
   const showAccessibilityPermissionDialog = async (): Promise<void> => {
@@ -355,6 +512,7 @@ export async function bootstrapApplication(): Promise<void> {
         })
       } finally {
         accessibilityDialogVisible = false
+        syncAppState()
       }
     })().finally(() => {
       accessibilityCheckInFlight = null
@@ -363,8 +521,107 @@ export async function bootstrapApplication(): Promise<void> {
     return accessibilityCheckInFlight
   }
 
+  const showMicrophonePermissionDialog = async (): Promise<void> => {
+    const dialogOptions = {
+      type: 'warning' as const,
+      buttons: ['Open Microphone Settings', 'Not now'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+      title: 'Microphone Permission Required',
+      message: 'TIA Voice needs microphone permission',
+      detail:
+        'Please grant TIA Voice access in System Settings > Privacy & Security > Microphone so dictation can work.'
+    }
+
+    const parentWindow = resolveAccessibilityDialogWindow()
+    const result = parentWindow
+      ? await dialog.showMessageBox(parentWindow, dialogOptions)
+      : await dialog.showMessageBox(dialogOptions)
+
+    if (result.response !== 0) {
+      return
+    }
+
+    await openPermissionSettingsPanel('microphone')
+  }
+
+  const ensureMicrophonePermission = (
+    trigger: 'startup' | 'focus' | 'activate' | 'interval'
+  ): Promise<void> => {
+    if (process.platform !== 'darwin') {
+      return Promise.resolve()
+    }
+
+    if (microphoneCheckInFlight) {
+      return microphoneCheckInFlight
+    }
+
+    microphoneCheckInFlight = (async () => {
+      if (!shouldEnableGlobalFeatures()) {
+        logDebug('microphone', 'Skipped microphone permission prompt until setup is ready', {
+          trigger
+        })
+        return
+      }
+
+      const granted = await checkMicrophonePermission(false)
+      logDebug('microphone', 'Checked microphone permission state', { trigger, granted })
+
+      if (granted || microphoneDialogVisible) {
+        return
+      }
+
+      const now = Date.now()
+      if (now - lastMicrophonePromptAt < ACCESSIBILITY_PERMISSION_PROMPT_COOLDOWN_MS) {
+        logDebug('microphone', 'Skipped microphone permission prompt due cooldown', {
+          trigger,
+          cooldownMs: ACCESSIBILITY_PERMISSION_PROMPT_COOLDOWN_MS
+        })
+        return
+      }
+
+      if (onboardingDialogVisible) {
+        logDebug('microphone', 'Skipped microphone prompt while onboarding dialog is visible', {
+          trigger
+        })
+        return
+      }
+
+      microphoneDialogVisible = true
+      lastMicrophonePromptAt = now
+      try {
+        const grantedAfterPrompt = await checkMicrophonePermission(true)
+        logDebug('microphone', 'Requested microphone access prompt', {
+          trigger,
+          grantedAfterPrompt
+        })
+
+        if (grantedAfterPrompt) {
+          return
+        }
+
+        await showMicrophonePermissionDialog()
+      } catch (error) {
+        logDebug('microphone', 'Failed to prompt for microphone permission', {
+          trigger,
+          error
+        })
+      } finally {
+        microphoneDialogVisible = false
+        syncAppState()
+      }
+    })().finally(() => {
+      microphoneCheckInFlight = null
+    })
+
+    return microphoneCheckInFlight
+  }
+
   const handleAppFocusPermissionCheck = (): void => {
+    syncAppState()
     void ensureAccessibilityPermission('focus')
+    void ensureMicrophonePermission('focus')
   }
 
   const syncApplicationBarVisibility = (): void => {
@@ -447,6 +704,7 @@ export async function bootstrapApplication(): Promise<void> {
         dashscopeKeyLabel: settingsStore.getDashscopeKeyLabel(),
         onboardingCompleted: settingsStore.isOnboardingComplete(),
         onboardingVisible: onboardingDialogVisible,
+        permissions: getAppPermissionSnapshot(),
         history: settings.history
       })
     )
@@ -566,6 +824,9 @@ export async function bootstrapApplication(): Promise<void> {
 
     if (!shouldStart) {
       if (hotkeyServiceStarted) {
+        logDebug('hotkey', 'Stopping global hotkey service', {
+          triggerKey: registeredTriggerKey
+        })
         hotkeyService.stop()
         hotkeyServiceStarted = false
       }
@@ -579,9 +840,18 @@ export async function bootstrapApplication(): Promise<void> {
     try {
       hotkeyService.start()
       hotkeyServiceStarted = true
+      logDebug('hotkey', 'Started global hotkey service', {
+        triggerKey: startupTriggerKey,
+        platform: process.platform
+      })
     } catch (error) {
       hotkeyReady = false
       registeredTriggerKey = null
+      logDebug('hotkey', 'Failed to start the global hotkey service', {
+        triggerKey: startupTriggerKey,
+        platform: process.platform,
+        error
+      })
       console.error('[hotkey] Failed to start the global hotkey service.', error)
       syncAppState()
       bringPrimaryWindowToFront()
@@ -636,6 +906,7 @@ export async function bootstrapApplication(): Promise<void> {
       syncAppState()
       syncGlobalHotkeyService()
       void ensureAccessibilityPermission('focus')
+      void ensureMicrophonePermission('focus')
       return {
         configured: settingsStore.hasDashscopeApiKey(),
         keyLabel: settingsStore.getDashscopeKeyLabel()
@@ -649,8 +920,13 @@ export async function bootstrapApplication(): Promise<void> {
       logDebug('onboarding', 'Dismissed onboarding dialog')
       bringMainWindowToFront()
       void ensureAccessibilityPermission('focus')
+      void ensureMicrophonePermission('focus')
     },
     checkAccessibilityPermission: (prompt) => checkAccessibilityPermission(prompt),
+    checkMicrophonePermission: (prompt) => checkMicrophonePermission(prompt),
+    openPermissionSettings: async (permission) => {
+      await openPermissionSettingsPanel(permission)
+    },
     resetOnboarding: () => {
       if (!is.dev) {
         logDebug('onboarding', 'Ignored reset onboarding request outside development mode')
@@ -691,9 +967,12 @@ export async function bootstrapApplication(): Promise<void> {
       return
     }
 
+    syncAppState()
     void ensureAccessibilityPermission('interval')
+    void ensureMicrophonePermission('interval')
   }, ACCESSIBILITY_PERMISSION_RECHECK_INTERVAL_MS)
   void ensureAccessibilityPermission('startup')
+  void ensureMicrophonePermission('startup')
 
   const showMainWindowHotkeyReady = globalShortcut.register(SHOW_MAIN_WINDOW_SHORTCUT, () => {
     bringPrimaryWindowToFront()
@@ -719,12 +998,16 @@ export async function bootstrapApplication(): Promise<void> {
 
   app.on('activate', () => {
     bringPrimaryWindowToFront()
+    syncAppState()
     void ensureAccessibilityPermission('activate')
+    void ensureMicrophonePermission('activate')
   })
 
   app.on('second-instance', () => {
     bringPrimaryWindowToFront()
+    syncAppState()
     void ensureAccessibilityPermission('activate')
+    void ensureMicrophonePermission('activate')
   })
 
   app.on('before-quit', () => {

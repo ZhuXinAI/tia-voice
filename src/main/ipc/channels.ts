@@ -24,6 +24,8 @@ export const IPC_CHANNELS = {
     saveDashscopeApiKey: 'app:save-dashscope-api-key',
     completeOnboarding: 'app:complete-onboarding',
     checkAccessibilityPermission: 'app:check-accessibility-permission',
+    checkMicrophonePermission: 'app:check-microphone-permission',
+    openPermissionSettings: 'app:open-permission-settings',
     resetOnboarding: 'app:reset-onboarding',
     showOnboardingWindow: 'app:show-onboarding-window'
   }
@@ -31,6 +33,17 @@ export const IPC_CHANNELS = {
 
 export const THEME_MODES = ['system', 'light', 'dark'] as const
 export type ThemeMode = (typeof THEME_MODES)[number]
+export type PermissionKind = 'accessibility' | 'microphone'
+export type PermissionStatus = 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unknown'
+
+export type PermissionStatePayload = {
+  kind: PermissionKind
+  granted: boolean
+  status: PermissionStatus
+  label: string
+  description: string
+  ctaLabel: string
+}
 
 export type MainAppStatePayload = {
   hotkeyHint: string
@@ -53,6 +66,11 @@ export type MainAppStatePayload = {
     ready: boolean
     label: string
     detail: string
+  }
+  permissions: {
+    hasMissing: boolean
+    accessibility: PermissionStatePayload
+    microphone: PermissionStatePayload
   }
   history: Array<{
     id: string

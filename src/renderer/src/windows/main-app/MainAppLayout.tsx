@@ -10,11 +10,12 @@ import type { DashscopeSetupState, MainAppState, SettingsSection } from './types
 type MainAppLayoutProps = {
   dashscope: DashscopeSetupState
   onOpenSettings: (section?: SettingsSection) => void
+  permissions: MainAppState['permissions']
   voiceBackendStatus: MainAppState['voiceBackendStatus']
 }
 
 export function MainAppLayout(props: MainAppLayoutProps): React.JSX.Element {
-  const { dashscope, onOpenSettings, voiceBackendStatus } = props
+  const { dashscope, onOpenSettings, permissions, voiceBackendStatus } = props
   const location = useLocation()
 
   const currentSectionTitle = useMemo(() => {
@@ -27,7 +28,11 @@ export function MainAppLayout(props: MainAppLayoutProps): React.JSX.Element {
 
   return (
     <SidebarProvider defaultOpen className="h-svh bg-background text-foreground">
-      <MainSidebar dashscope={dashscope} onOpenSettings={onOpenSettings} />
+      <MainSidebar
+        dashscope={dashscope}
+        onOpenSettings={onOpenSettings}
+        permissions={permissions}
+      />
 
       <SidebarInset className="h-svh overflow-hidden bg-background">
         <header className="flex h-14 items-center gap-3 border-b border-border/60 px-4">

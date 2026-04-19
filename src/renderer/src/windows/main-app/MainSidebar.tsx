@@ -1,4 +1,4 @@
-import { BookText, Home, Settings2 } from 'lucide-react'
+import { AlertTriangle, BookText, Home, Settings2 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 
 import { Button } from '@renderer/components/ui/button'
@@ -20,11 +20,12 @@ import { TrayIcon } from './TrayIcon'
 
 type MainSidebarProps = {
   dashscope: DashscopeSetupState
+  permissions: import('./types').MainAppState['permissions']
   onOpenSettings: (section?: SettingsSection) => void
 }
 
 export function MainSidebar(props: MainSidebarProps): React.JSX.Element {
-  const { dashscope, onOpenSettings } = props
+  const { dashscope, permissions, onOpenSettings } = props
   const location = useLocation()
   const isDictionaryRoute = location.pathname.startsWith('/dictionary')
 
@@ -75,20 +76,54 @@ export function MainSidebar(props: MainSidebarProps): React.JSX.Element {
       </SidebarContent>
 
       <SidebarFooter className="px-3 pb-4">
-        <div className="group-data-[collapsible=icon]:hidden rounded-lg border border-sidebar-border/70 bg-sidebar-accent/30 p-3">
-          <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Provider</p>
-          <p className="mt-2 text-sm font-medium">DashScope</p>
-          <p className="text-xs text-muted-foreground">
-            {dashscope.keyLabel ?? 'No API key saved yet'}
-          </p>
+        {permissions.hasMissing ? (
           <Button
-            className="mt-3 w-full"
+            className="mb-3 w-full justify-start gap-2 border-amber-500/30 bg-amber-500/10 text-amber-800 hover:bg-amber-500/15 dark:text-amber-200"
             variant="outline"
-            onClick={() => onOpenSettings('providers')}
+            onClick={() => onOpenSettings('permissions')}
             type="button"
           >
-            {dashscope.configured ? 'Manage key' : 'Add key'}
+            <AlertTriangle className="h-4 w-4" />
+            <span>Permissions need attention</span>
           </Button>
+        ) : null}
+
+        <div className="group-data-[collapsible=icon]:hidden rounded-lg border border-sidebar-border/70 bg-sidebar-accent/30 p-3">
+          {permissions.hasMissing ? (
+            <>
+              <p className="text-xs uppercase tracking-[0.08em] text-amber-700 dark:text-amber-200">
+                Warning
+              </p>
+              <p className="mt-2 text-sm font-medium">Voice typing is missing permission access</p>
+              <p className="text-xs text-muted-foreground">
+                Open Permissions in Settings and enable Accessibility plus Microphone in macOS.
+              </p>
+              <Button
+                className="mt-3 w-full"
+                variant="outline"
+                onClick={() => onOpenSettings('permissions')}
+                type="button"
+              >
+                Fix permissions
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Provider</p>
+              <p className="mt-2 text-sm font-medium">DashScope</p>
+              <p className="text-xs text-muted-foreground">
+                {dashscope.keyLabel ?? 'No API key saved yet'}
+              </p>
+              <Button
+                className="mt-3 w-full"
+                variant="outline"
+                onClick={() => onOpenSettings('providers')}
+                type="button"
+              >
+                {dashscope.configured ? 'Manage key' : 'Add key'}
+              </Button>
+            </>
+          )}
         </div>
       </SidebarFooter>
     </Sidebar>

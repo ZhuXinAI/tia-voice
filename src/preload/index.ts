@@ -1,5 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IPC_CHANNELS, type ProviderSetupPayload, type ThemeMode } from '../main/ipc/channels'
+import {
+  IPC_CHANNELS,
+  type PermissionKind,
+  type PermissionStatePayload,
+  type ProviderSetupPayload,
+  type ThemeMode
+} from '../main/ipc/channels'
 
 export type { ThemeMode }
 
@@ -69,6 +75,11 @@ export type MainAppState = {
     label: string
     detail: string
   }
+  permissions: {
+    hasMissing: boolean
+    accessibility: PermissionStatePayload
+    microphone: PermissionStatePayload
+  }
   history: Array<{
     id: string
     createdAt: number
@@ -98,6 +109,8 @@ export type TiaApi = {
   completeOnboarding(): Promise<void>
   resetOnboarding(): Promise<void>
   checkAccessibilityPermission(prompt: boolean): Promise<boolean>
+  checkMicrophonePermission(prompt: boolean): Promise<boolean>
+  openPermissionSettings(permission: PermissionKind): Promise<void>
   showOnboardingWindow(): Promise<void>
   logDebug(message: string, details?: unknown): void
   getDebugLogPath(): Promise<string>
@@ -120,6 +133,8 @@ const APP_SAVE_DASHSCOPE_API_KEY_CHANNEL = IPC_CHANNELS.app.saveDashscopeApiKey
 const APP_COMPLETE_ONBOARDING_CHANNEL = IPC_CHANNELS.app.completeOnboarding
 const APP_RESET_ONBOARDING_CHANNEL = IPC_CHANNELS.app.resetOnboarding
 const APP_CHECK_ACCESSIBILITY_PERMISSION_CHANNEL = IPC_CHANNELS.app.checkAccessibilityPermission
+const APP_CHECK_MICROPHONE_PERMISSION_CHANNEL = IPC_CHANNELS.app.checkMicrophonePermission
+const APP_OPEN_PERMISSION_SETTINGS_CHANNEL = IPC_CHANNELS.app.openPermissionSettings
 const APP_SHOW_ONBOARDING_WINDOW_CHANNEL = IPC_CHANNELS.app.showOnboardingWindow
 const electronBridge: ElectronBridge = {
   process: {
@@ -192,6 +207,12 @@ const api: TiaApi = {
   },
   checkAccessibilityPermission(prompt) {
     return ipcRenderer.invoke(APP_CHECK_ACCESSIBILITY_PERMISSION_CHANNEL, prompt)
+  },
+  checkMicrophonePermission(prompt) {
+    return ipcRenderer.invoke(APP_CHECK_MICROPHONE_PERMISSION_CHANNEL, prompt)
+  },
+  openPermissionSettings(permission) {
+    return ipcRenderer.invoke(APP_OPEN_PERMISSION_SETTINGS_CHANNEL, permission)
   },
   showOnboardingWindow() {
     return ipcRenderer.invoke(APP_SHOW_ONBOARDING_WINDOW_CHANNEL)

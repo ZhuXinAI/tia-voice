@@ -26,6 +26,25 @@ const noopMainAppState = {
     label: 'DashScope key required',
     detail: 'Add your DashScope API key in onboarding or settings to start dictating.'
   },
+  permissions: {
+    hasMissing: true,
+    accessibility: {
+      kind: 'accessibility' as const,
+      granted: false,
+      status: 'denied' as const,
+      label: 'Accessibility required',
+      description: 'Enable Accessibility in System Settings so TIA Voice can hear the hotkey.',
+      ctaLabel: 'Open Accessibility Settings'
+    },
+    microphone: {
+      kind: 'microphone' as const,
+      granted: false,
+      status: 'not-determined' as const,
+      label: 'Microphone required',
+      description: 'Enable microphone access in System Settings so TIA Voice can capture audio.',
+      ctaLabel: 'Open Microphone Settings'
+    }
+  },
   history: []
 }
 
@@ -47,6 +66,8 @@ const noopApi: TiaApi = {
   completeOnboarding: async () => undefined,
   resetOnboarding: async () => undefined,
   checkAccessibilityPermission: async () => true,
+  checkMicrophonePermission: async () => true,
+  openPermissionSettings: async () => undefined,
   showOnboardingWindow: async () => undefined,
   logDebug: () => undefined,
   getDebugLogPath: async () => ''
@@ -138,6 +159,18 @@ export function checkAccessibilityPermission(
   prompt: Parameters<TiaApi['checkAccessibilityPermission']>[0]
 ): ReturnType<TiaApi['checkAccessibilityPermission']> {
   return getApi().checkAccessibilityPermission(prompt)
+}
+
+export function checkMicrophonePermission(
+  prompt: Parameters<TiaApi['checkMicrophonePermission']>[0]
+): ReturnType<TiaApi['checkMicrophonePermission']> {
+  return getApi().checkMicrophonePermission(prompt)
+}
+
+export function openPermissionSettings(
+  permission: Parameters<TiaApi['openPermissionSettings']>[0]
+): ReturnType<TiaApi['openPermissionSettings']> {
+  return getApi().openPermissionSettings(permission)
 }
 
 export function showOnboardingWindow(): ReturnType<TiaApi['showOnboardingWindow']> {

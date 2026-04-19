@@ -13,6 +13,7 @@ type OnboardingDialogProps = {
   dashscopeConfigured: boolean
   dashscopeKeyLabel: string | null
   hotkeyHint: string
+  permissions: import('./types').MainAppState['permissions']
   registeredHotkey: 'MetaRight' | 'AltRight' | null
   registeredHotkeyLabel: string | null
   onOpenChange: (open: boolean) => void
@@ -26,6 +27,7 @@ export function OnboardingDialog(props: OnboardingDialogProps): React.JSX.Elemen
     dashscopeConfigured,
     dashscopeKeyLabel,
     hotkeyHint,
+    permissions,
     registeredHotkey,
     registeredHotkeyLabel,
     onOpenChange,
@@ -47,6 +49,7 @@ export function OnboardingDialog(props: OnboardingDialogProps): React.JSX.Elemen
           initialDashscopeConfigured={dashscopeConfigured}
           initialDashscopeKeyLabel={dashscopeKeyLabel}
           hotkeyHint={hotkeyHint}
+          initialPermissions={permissions}
           registeredHotkey={registeredHotkey}
           registeredHotkeyLabel={registeredHotkeyLabel}
           mode="dialog"

@@ -5,6 +5,7 @@ import {
   completeOnboarding,
   getHistoryEntryDebug,
   getMainAppState,
+  openPermissionSettings,
   resetOnboarding,
   retryHistoryEntry,
   saveDashscopeApiKey,
@@ -34,7 +35,9 @@ export default function MainAppWindow(): React.JSX.Element {
   const [retrying, setRetrying] = useState<Record<string, boolean>>({})
   const [onboardingOpen, setOnboardingOpen] = useState(defaultMainAppState.onboarding.visible)
   const [selectedHistory, setSelectedHistory] = useState<MainAppHistoryEntry | null>(null)
-  const [selectedHistoryDetail, setSelectedHistoryDetail] = useState<TiaHistoryDebugEntry | null>(null)
+  const [selectedHistoryDetail, setSelectedHistoryDetail] = useState<TiaHistoryDebugEntry | null>(
+    null
+  )
   const [historyDetailLoading, setHistoryDetailLoading] = useState(false)
 
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -53,6 +56,15 @@ export default function MainAppWindow(): React.JSX.Element {
   useEffect(() => {
     void getMainAppState().then(setState)
     return subscribeToAppState(setState)
+  }, [])
+
+  useEffect(() => {
+    const handleWindowFocus = (): void => {
+      void syncMainAppState()
+    }
+
+    window.addEventListener('focus', handleWindowFocus)
+    return () => window.removeEventListener('focus', handleWindowFocus)
   }, [])
 
   useEffect(() => {
@@ -237,6 +249,12 @@ export default function MainAppWindow(): React.JSX.Element {
     await syncMainAppState()
   }
 
+  const handleOpenPermissionSettings = async (
+    permission: 'accessibility' | 'microphone'
+  ): Promise<void> => {
+    await openPermissionSettings(permission)
+  }
+
   return (
     <HashRouter>
       <Routes>
@@ -246,6 +264,7 @@ export default function MainAppWindow(): React.JSX.Element {
             <MainAppLayout
               dashscope={state.dashscope}
               onOpenSettings={handleOpenSettings}
+              permissions={state.permissions}
               voiceBackendStatus={state.voiceBackendStatus}
             />
           }
@@ -290,9 +309,11 @@ export default function MainAppWindow(): React.JSX.Element {
         section={settingsSection}
         onSectionChange={setSettingsSection}
         dashscope={state.dashscope}
+        permissions={state.permissions}
         themeMode={state.themeMode}
         onThemeModeChange={handleThemeModeChange}
         onSaveDashscopeApiKey={handleSaveDashscopeApiKey}
+        onOpenPermissionSettings={handleOpenPermissionSettings}
         onOpenOnboarding={handleOpenOnboardingFromSettings}
         onResetOnboarding={handleResetOnboarding}
       />
@@ -310,6 +331,7 @@ export default function MainAppWindow(): React.JSX.Element {
         dashscopeConfigured={state.dashscope.configured}
         dashscopeKeyLabel={state.dashscope.keyLabel}
         hotkeyHint={state.hotkeyHint}
+        permissions={state.permissions}
         registeredHotkey={state.registeredHotkey}
         registeredHotkeyLabel={state.registeredHotkeyLabel}
         onOpenChange={handleOnboardingOpenChange}

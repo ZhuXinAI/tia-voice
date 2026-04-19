@@ -6,15 +6,20 @@ import { Input } from '@renderer/components/ui/input'
 import { Textarea } from '@renderer/components/ui/textarea'
 import {
   checkAccessibilityPermission,
+  checkMicrophonePermission,
+  openPermissionSettings,
   saveDashscopeApiKey,
   startDictation,
   stopDictation
 } from '@renderer/lib/ipc'
 
+import type { MainAppState } from '../main-app/types'
+
 type OnboardingFlowProps = {
   initialDashscopeConfigured: boolean
   initialDashscopeKeyLabel: string | null
   hotkeyHint: string
+  initialPermissions: MainAppState['permissions']
   registeredHotkey: 'MetaRight' | 'AltRight' | null
   registeredHotkeyLabel: string | null
   mode?: 'page' | 'dialog'
@@ -22,80 +27,143 @@ type OnboardingFlowProps = {
   onSkip?: () => Promise<void>
 }
 
-type OnboardingStep = 1 | 2 | 3 | 4
+type OnboardingStep = 1 | 2 | 3 | 4 | 5
 
-const STEP_4_STARTER_TEXT =
+const STEP_5_STARTER_TEXT =
   'Hi Tony, can we do a meet somewhere around 9am, gonna discuss about the deployment'
+
+function resolveInitialStep(input: {
+  dashscopeConfigured: boolean
+  permissions: MainAppState['permissions']
+}): OnboardingStep {
+  if (!input.dashscopeConfigured) {
+    return 1
+  }
+
+  if (!input.permissions.accessibility.granted) {
+    return 2
+  }
+
+  if (!input.permissions.microphone.granted) {
+    return 3
+  }
+
+  return 4
+}
 
 export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
   const {
     initialDashscopeConfigured,
     initialDashscopeKeyLabel,
     hotkeyHint,
+    initialPermissions,
     registeredHotkey,
     registeredHotkeyLabel,
     mode = 'page',
     onComplete
   } = props
   const onSkip = props.onSkip ?? onComplete
-  const [step, setStep] = useState<OnboardingStep>(() => (initialDashscopeConfigured ? 2 : 1))
-  const [dashscopeApiKey, setDashscopeApiKey] = useState('')
   const [dashscopeConfigured, setDashscopeConfigured] = useState(initialDashscopeConfigured)
   const [dashscopeKeyLabel, setDashscopeKeyLabel] = useState(initialDashscopeKeyLabel)
+  const [accessibilityGranted, setAccessibilityGranted] = useState(
+    initialPermissions.accessibility.granted
+  )
+  const [microphoneGranted, setMicrophoneGranted] = useState(initialPermissions.microphone.granted)
+  const [step, setStep] = useState<OnboardingStep>(
+    resolveInitialStep({
+      dashscopeConfigured: initialDashscopeConfigured,
+      permissions: initialPermissions
+    })
+  )
+  const [dashscopeApiKey, setDashscopeApiKey] = useState('')
   const [providerSavePending, setProviderSavePending] = useState(false)
   const [providerSaveError, setProviderSaveError] = useState<string | null>(null)
-  const [practiceDraft, setPracticeDraft] = useState('')
-  const [rewriteDraft, setRewriteDraft] = useState(STEP_4_STARTER_TEXT)
   const [permissionError, setPermissionError] = useState<string | null>(null)
+  const [practiceDraft, setPracticeDraft] = useState('')
+  const [rewriteDraft, setRewriteDraft] = useState(STEP_5_STARTER_TEXT)
   const [isFinishing, setIsFinishing] = useState(false)
   const [finishError, setFinishError] = useState<string | null>(null)
   const [isSkipping, setIsSkipping] = useState(false)
-  const activeStep = step
 
   useEffect(() => {
-    if (!dashscopeConfigured || activeStep !== 2) {
+    setAccessibilityGranted(initialPermissions.accessibility.granted)
+    setMicrophoneGranted(initialPermissions.microphone.granted)
+  }, [initialPermissions.accessibility.granted, initialPermissions.microphone.granted])
+
+  useEffect(() => {
+    if (!dashscopeConfigured || step !== 2) {
       return
     }
 
     let active = true
+    setPermissionError(null)
 
-    const checkPermission = async (prompt: boolean): Promise<boolean> => {
+    const checkPermission = async (prompt: boolean): Promise<void> => {
       try {
         const allowed = await checkAccessibilityPermission(prompt)
-        if (!active) {
-          return false
+        if (!active || !allowed) {
+          return
         }
 
-        if (allowed) {
-          setStep(3)
-          return true
-        }
+        setAccessibilityGranted(true)
+        setStep(3)
       } catch {
         if (!active) {
-          return false
+          return
         }
 
         setPermissionError(
-          'We could not check accessibility permissions yet. Please keep this window open and try again.'
+          'We could not verify Accessibility yet. Keep this window open and try again.'
         )
       }
-
-      return false
     }
 
     void checkPermission(true)
-    const intervalId = window.setInterval(() => {
-      void checkPermission(false)
-    }, 1300)
-
+    const intervalId = window.setInterval(() => void checkPermission(false), 1300)
     return () => {
       active = false
       window.clearInterval(intervalId)
     }
-  }, [activeStep, dashscopeConfigured])
+  }, [dashscopeConfigured, step])
 
   useEffect(() => {
-    const isDictationStep = activeStep === 3 || activeStep === 4
+    if (!dashscopeConfigured || !accessibilityGranted || step !== 3) {
+      return
+    }
+
+    let active = true
+    setPermissionError(null)
+
+    const checkPermission = async (prompt: boolean): Promise<void> => {
+      try {
+        const allowed = await checkMicrophonePermission(prompt)
+        if (!active || !allowed) {
+          return
+        }
+
+        setMicrophoneGranted(true)
+        setStep(4)
+      } catch {
+        if (!active) {
+          return
+        }
+
+        setPermissionError(
+          'We could not verify microphone permission yet. Keep this window open and try again.'
+        )
+      }
+    }
+
+    void checkPermission(true)
+    const intervalId = window.setInterval(() => void checkPermission(false), 1300)
+    return () => {
+      active = false
+      window.clearInterval(intervalId)
+    }
+  }, [accessibilityGranted, dashscopeConfigured, step])
+
+  useEffect(() => {
+    const isDictationStep = step === 4 || step === 5
     if (!isDictationStep || !registeredHotkey) {
       return
     }
@@ -132,14 +200,13 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('keyup', handleKeyUp)
     window.addEventListener('blur', stopActiveCapture)
-
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
       window.removeEventListener('blur', stopActiveCapture)
       stopActiveCapture()
     }
-  }, [activeStep, registeredHotkey])
+  }, [registeredHotkey, step])
 
   const handleSaveDashscopeKey = async (): Promise<void> => {
     if (!dashscopeApiKey.trim() || providerSavePending) {
@@ -154,7 +221,7 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
       setDashscopeConfigured(result.configured)
       setDashscopeKeyLabel(result.keyLabel)
       setDashscopeApiKey('')
-      setStep(2)
+      setStep(accessibilityGranted ? (microphoneGranted ? 4 : 3) : 2)
     } catch (error) {
       setProviderSaveError(
         error instanceof Error ? error.message : 'Unable to save your DashScope API key right now.'
@@ -213,15 +280,13 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
             <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">
               Getting Started
             </p>
-            <p className="text-sm font-medium">Step {activeStep} of 4</p>
+            <p className="text-sm font-medium">Step {step} of 5</p>
           </div>
           <div className="flex items-center gap-2">
-            {[1, 2, 3, 4].map((item) => (
+            {[1, 2, 3, 4, 5].map((item) => (
               <span
                 key={item}
-                className={`h-1.5 w-8 rounded-full ${
-                  item <= activeStep ? 'bg-primary' : 'bg-border'
-                }`}
+                className={`h-1.5 w-8 rounded-full ${item <= step ? 'bg-primary' : 'bg-border'}`}
               />
             ))}
             <Button
@@ -236,7 +301,7 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
           </div>
         </div>
 
-        {activeStep === 1 ? (
+        {step === 1 ? (
           <div className="space-y-6">
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-md">
               <img src={trayIconUrl} alt="TIA Voice tray icon" className="h-9 w-9" />
@@ -279,23 +344,66 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
           </div>
         ) : null}
 
-        {activeStep === 2 ? (
-          <div className="space-y-4">
+        {step === 2 ? (
+          <div className="space-y-5">
             <h2 className="text-2xl font-semibold tracking-tight">
               Allow Accessibility Permission
             </h2>
             <p className="text-sm text-muted-foreground">
-              TIA Voice needs macOS Accessibility permission for keyboard listening. We opened the
-              system prompt and will automatically continue once permission is granted.
+              TIA Voice needs Accessibility permission for global hotkey listening. We will keep
+              checking while this window stays open.
             </p>
             <div className="rounded-xl border border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
-              Waiting for permission...
+              <p>{accessibilityGranted ? 'Accessibility granted.' : 'Waiting for permission...'}</p>
+              <p className="mt-2">
+                macOS path: System Settings &gt; Privacy &amp; Security &gt; Accessibility
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button onClick={() => void openPermissionSettings('accessibility')} type="button">
+                Open Accessibility Settings
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => void checkAccessibilityPermission(true)}
+                type="button"
+              >
+                Re-check permission
+              </Button>
             </div>
             {permissionError ? <p className="text-sm text-destructive">{permissionError}</p> : null}
           </div>
         ) : null}
 
-        {activeStep === 3 ? (
+        {step === 3 ? (
+          <div className="space-y-5">
+            <h2 className="text-2xl font-semibold tracking-tight">Allow Microphone Permission</h2>
+            <p className="text-sm text-muted-foreground">
+              TIA Voice also needs microphone access before dictation can start.
+            </p>
+            <div className="rounded-xl border border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
+              <p>{microphoneGranted ? 'Microphone granted.' : 'Waiting for permission...'}</p>
+              <p className="mt-2">
+                macOS path: System Settings &gt; Privacy &amp; Security &gt; Microphone
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button onClick={() => void openPermissionSettings('microphone')} type="button">
+                Open Microphone Settings
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => void checkMicrophonePermission(true)}
+                type="button"
+              >
+                Re-check permission
+              </Button>
+            </div>
+            {permissionError ? <p className="text-sm text-destructive">{permissionError}</p> : null}
+          </div>
+        ) : null}
+
+        {step === 4 ? (
           <div className="space-y-5">
             <h2 className="text-2xl font-semibold tracking-tight">Try Your First Dictation</h2>
             <p className="text-sm text-muted-foreground">
@@ -318,14 +426,14 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
               placeholder="This is the first sentence I spoke using TIA Voice"
             />
             <div className="flex justify-end">
-              <Button onClick={() => setStep(4)} type="button">
+              <Button onClick={() => setStep(5)} type="button">
                 Next
               </Button>
             </div>
           </div>
         ) : null}
 
-        {activeStep === 4 ? (
+        {step === 5 ? (
           <div className="space-y-5">
             <h2 className="text-2xl font-semibold tracking-tight">Edit Text with Voice</h2>
             <p className="text-sm text-muted-foreground">
@@ -337,7 +445,7 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
               rows={6}
             />
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <Button variant="outline" onClick={() => setStep(3)} type="button">
+              <Button variant="outline" onClick={() => setStep(4)} type="button">
                 Previous
               </Button>
               <Button

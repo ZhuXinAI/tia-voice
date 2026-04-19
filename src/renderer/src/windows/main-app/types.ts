@@ -7,7 +7,7 @@ export type MainAppState = PreloadMainAppState
 export type MainAppHistoryEntry = MainAppState['history'][number]
 export type TiaHistoryDebugEntry = PreloadHistoryDebugEntry
 export type DashscopeSetupState = MainAppState['dashscope']
-export type SettingsSection = 'general' | 'providers' | 'system'
+export type SettingsSection = 'general' | 'providers' | 'permissions'
 
 export type DictionaryPhrase = {
   id: string

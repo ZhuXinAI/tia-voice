@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Keyboard, Languages, Mic2, Monitor, Settings2, SunMoon, Volume2 } from 'lucide-react'
+import { Keyboard, Languages, Mic2, Settings2, ShieldAlert, SunMoon } from 'lucide-react'
 
 import { Button } from '@renderer/components/ui/button'
 import { Card, CardContent } from '@renderer/components/ui/card'
@@ -15,7 +15,7 @@ import { Separator } from '@renderer/components/ui/separator'
 import { Switch } from '@renderer/components/ui/switch'
 import { cn } from '@renderer/lib/utils'
 
-import type { DashscopeSetupState, SettingsSection } from './types'
+import type { DashscopeSetupState, MainAppState, SettingsSection } from './types'
 import type { ThemeMode } from '../../../../preload/index'
 
 type SettingsDialogProps = {
@@ -24,9 +24,11 @@ type SettingsDialogProps = {
   section: SettingsSection
   onSectionChange: (section: SettingsSection) => void
   dashscope: DashscopeSetupState
+  permissions: MainAppState['permissions']
   themeMode: ThemeMode
   onThemeModeChange: (themeMode: ThemeMode) => Promise<void>
   onSaveDashscopeApiKey: (apiKey: string) => Promise<void>
+  onOpenPermissionSettings: (permission: 'accessibility' | 'microphone') => Promise<void>
   onOpenOnboarding: () => Promise<void>
   onResetOnboarding: () => Promise<void>
 }
@@ -80,9 +82,9 @@ const settingsMenu: Array<{
     icon: Mic2
   },
   {
-    id: 'system',
-    label: 'System',
-    icon: Monitor
+    id: 'permissions',
+    label: 'Permissions',
+    icon: ShieldAlert
   }
 ]
 
@@ -93,9 +95,11 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
     section,
     onSectionChange,
     dashscope,
+    permissions,
     themeMode,
     onThemeModeChange,
     onSaveDashscopeApiKey,
+    onOpenPermissionSettings,
     onOpenOnboarding,
     onResetOnboarding
   } = props
@@ -103,13 +107,13 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
   const [shortcutsIndex, setShortcutsIndex] = useState(0)
   const [micIndex, setMicIndex] = useState(0)
   const [languageIndex, setLanguageIndex] = useState(0)
-  const [beepEnabled, setBeepEnabled] = useState(true)
-  const [showInDock, setShowInDock] = useState(true)
-  const [launchAtLogin, setLaunchAtLogin] = useState(false)
   const [themePending, setThemePending] = useState(false)
   const [apiKeyDraft, setApiKeyDraft] = useState('')
   const [providerSavePending, setProviderSavePending] = useState(false)
   const [providerSaveError, setProviderSaveError] = useState<string | null>(null)
+  const [permissionActionPending, setPermissionActionPending] = useState<
+    'accessibility' | 'microphone' | null
+  >(null)
   const [onboardingResetPending, setOnboardingResetPending] = useState(false)
   const [onboardingResetError, setOnboardingResetError] = useState<string | null>(null)
   const showDevOnboardingTools = import.meta.env.DEV
@@ -168,6 +172,21 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
       )
     } finally {
       setOnboardingResetPending(false)
+    }
+  }
+
+  const handleOpenPermissionSettings = async (
+    permission: 'accessibility' | 'microphone'
+  ): Promise<void> => {
+    if (permissionActionPending) {
+      return
+    }
+
+    setPermissionActionPending(permission)
+    try {
+      await onOpenPermissionSettings(permission)
+    } finally {
+      setPermissionActionPending(null)
     }
   }
 
@@ -380,50 +399,85 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
               </div>
             ) : null}
 
-            {section === 'system' ? (
+            {section === 'permissions' ? (
               <div className="space-y-6">
                 <div>
-                  <h2 className="text-3xl font-semibold">System</h2>
+                  <h2 className="text-3xl font-semibold">Permissions</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Runtime behavior and operating system integration.
+                    TIA Voice re-checks these whenever the app window becomes active so missing
+                    macOS permissions stay visible.
                   </p>
                 </div>
 
                 <Card className="border-border/70 bg-card/70">
                   <CardContent className="space-y-5 p-5">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="space-y-1">
-                        <p className="font-medium">Beep sound</p>
-                        <p className="text-sm text-muted-foreground">
-                          Play an audible cue when dictation starts.
-                        </p>
-                      </div>
-                      <Switch checked={beepEnabled} onCheckedChange={setBeepEnabled} />
+                    {[permissions.accessibility, permissions.microphone].map(
+                      (permission, index) => (
+                        <div key={permission.kind} className="space-y-5">
+                          <div className="flex flex-col gap-4 rounded-2xl border border-border/70 bg-background/60 p-5 md:flex-row md:items-start md:justify-between">
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={cn(
+                                    'inline-flex h-2.5 w-2.5 rounded-full',
+                                    permission.granted ? 'bg-emerald-400' : 'bg-amber-400'
+                                  )}
+                                  aria-hidden="true"
+                                />
+                                <p className="font-medium">
+                                  {permission.kind === 'accessibility'
+                                    ? 'Accessibility'
+                                    : 'Microphone'}
+                                </p>
+                                <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                                  {permission.status}
+                                </span>
+                              </div>
+                              <p className="text-sm font-medium">{permission.label}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {permission.description}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                macOS path: System Settings &gt; Privacy &amp; Security &gt;{' '}
+                                {permission.kind === 'accessibility'
+                                  ? 'Accessibility'
+                                  : 'Microphone'}
+                              </p>
+                            </div>
+                            <Button
+                              type="button"
+                              variant={permission.granted ? 'outline' : 'default'}
+                              disabled={permissionActionPending !== null}
+                              onClick={() => void handleOpenPermissionSettings(permission.kind)}
+                            >
+                              {permissionActionPending === permission.kind
+                                ? 'Opening…'
+                                : permission.ctaLabel}
+                            </Button>
+                          </div>
+
+                          {index === 0 ? <Separator /> : null}
+                        </div>
+                      )
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card className="border-border/70 bg-card/70">
+                  <CardContent className="space-y-4 p-5">
+                    <div className="space-y-1">
+                      <p className="font-medium">Permission status</p>
+                      <p className="text-sm text-muted-foreground">
+                        {permissions.hasMissing
+                          ? 'TIA Voice is still blocked from full voice typing until both permissions are enabled.'
+                          : 'All required permissions are enabled for voice typing.'}
+                      </p>
                     </div>
-
-                    <Separator />
-
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="space-y-1">
-                        <p className="font-medium">Show app in dock</p>
-                        <p className="text-sm text-muted-foreground">
-                          Keep the main app visible in the system dock.
-                        </p>
-                      </div>
-                      <Switch checked={showInDock} onCheckedChange={setShowInDock} />
-                    </div>
-
-                    <Separator />
-
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="space-y-1">
-                        <p className="font-medium">Launch app at login</p>
-                        <p className="text-sm text-muted-foreground">
-                          Start TIA Voice automatically after sign-in.
-                        </p>
-                      </div>
-                      <Switch checked={launchAtLogin} onCheckedChange={setLaunchAtLogin} />
-                    </div>
+                    <Switch
+                      checked={!permissions.hasMissing}
+                      disabled
+                      aria-label="Permission summary"
+                    />
                   </CardContent>
                 </Card>
 
@@ -450,12 +504,6 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
                     </CardContent>
                   </Card>
                 ) : null}
-
-                <p className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Volume2 className="h-3.5 w-3.5" />
-                  System settings are currently local UI state and will be wired to persistent
-                  preferences next.
-                </p>
               </div>
             ) : null}
           </section>

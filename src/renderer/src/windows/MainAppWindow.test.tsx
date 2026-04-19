@@ -25,6 +25,25 @@ const baseState = {
     label: 'DashScope key required',
     detail: 'Add your DashScope API key in onboarding or settings to start dictating.'
   },
+  permissions: {
+    hasMissing: true,
+    accessibility: {
+      kind: 'accessibility' as const,
+      granted: false,
+      status: 'denied' as const,
+      label: 'Accessibility required',
+      description: 'Enable Accessibility in System Settings so TIA Voice can hear the hotkey.',
+      ctaLabel: 'Open Accessibility Settings'
+    },
+    microphone: {
+      kind: 'microphone' as const,
+      granted: false,
+      status: 'not-determined' as const,
+      label: 'Microphone permission pending',
+      description: 'Enable microphone access in System Settings so TIA Voice can capture audio.',
+      ctaLabel: 'Open Microphone Settings'
+    }
+  },
   history: []
 }
 
@@ -38,6 +57,21 @@ const configuredState = {
     ready: true,
     label: 'Voice typing ready',
     detail: 'Your DashScope key is configured and ready for voice typing.'
+  },
+  permissions: {
+    hasMissing: false,
+    accessibility: {
+      ...baseState.permissions.accessibility,
+      granted: true,
+      status: 'granted',
+      label: 'Accessibility enabled'
+    },
+    microphone: {
+      ...baseState.permissions.microphone,
+      granted: true,
+      status: 'granted',
+      label: 'Microphone enabled'
+    }
   }
 }
 
@@ -57,6 +91,7 @@ const {
   completeOnboardingMock,
   resetOnboardingMock,
   saveDashscopeApiKeyMock,
+  openPermissionSettingsMock,
   showOnboardingWindowMock,
   setThemeModeMock
 } = vi.hoisted(() => ({
@@ -67,6 +102,7 @@ const {
   completeOnboardingMock: vi.fn(),
   resetOnboardingMock: vi.fn(),
   saveDashscopeApiKeyMock: vi.fn(),
+  openPermissionSettingsMock: vi.fn(),
   showOnboardingWindowMock: vi.fn(),
   setThemeModeMock: vi.fn()
 }))
@@ -78,6 +114,7 @@ vi.mock('../lib/ipc', () => ({
   resetOnboarding: resetOnboardingMock,
   retryHistoryEntry: retryHistoryEntryMock,
   saveDashscopeApiKey: saveDashscopeApiKeyMock,
+  openPermissionSettings: openPermissionSettingsMock,
   showOnboardingWindow: showOnboardingWindowMock,
   setThemeMode: setThemeModeMock,
   subscribeToAppState: subscribeToAppStateMock
@@ -107,6 +144,7 @@ describe('MainAppWindow', () => {
     completeOnboardingMock.mockReset()
     resetOnboardingMock.mockReset()
     saveDashscopeApiKeyMock.mockReset()
+    openPermissionSettingsMock.mockReset()
     showOnboardingWindowMock.mockReset()
     setThemeModeMock.mockReset()
 
@@ -119,6 +157,7 @@ describe('MainAppWindow', () => {
       configured: true,
       keyLabel: 'Saved locally ••••1234'
     })
+    openPermissionSettingsMock.mockResolvedValue(undefined)
     showOnboardingWindowMock.mockResolvedValue(undefined)
     setThemeModeMock.mockResolvedValue(undefined)
   })
@@ -139,8 +178,8 @@ describe('MainAppWindow', () => {
 
     render(<MainAppWindow />)
 
-    const addKeyButton = (await screen.findAllByRole('button', { name: /add key/i }))[0]
-    fireEvent.click(addKeyButton)
+    fireEvent.click(await screen.findByRole('button', { name: /settings/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^providers$/i }))
 
     const input = await screen.findByPlaceholderText(/enter your dashscope api key/i)
     fireEvent.change(input, { target: { value: 'sk-test-1234' } })
@@ -157,8 +196,8 @@ describe('MainAppWindow', () => {
 
     render(<MainAppWindow />)
 
-    const addKeyButton = (await screen.findAllByRole('button', { name: /add key/i }))[0]
-    fireEvent.click(addKeyButton)
+    fireEvent.click(await screen.findByRole('button', { name: /settings/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^providers$/i }))
     fireEvent.click(await screen.findByRole('button', { name: /open setup guide/i }))
 
     await waitFor(() => {
@@ -197,7 +236,9 @@ describe('MainAppWindow', () => {
 
     render(<MainAppWindow />)
 
-    fireEvent.click(await screen.findByRole('button', { name: /open details for voice transcription/i }))
+    fireEvent.click(
+      await screen.findByRole('button', { name: /open details for voice transcription/i })
+    )
 
     await waitFor(() => {
       expect(getHistoryEntryDebugMock).toHaveBeenCalledWith('history-1')
