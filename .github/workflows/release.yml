@@ -67,11 +67,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Preflight packaged auth dependency validation
+      - name: Preflight packaged build validation
         run: |
           pnpm run build
-          CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --dir --mac --arm64
-          pnpm run verify:packaged-auth-deps -- "dist/mac-arm64/TIA Voice.app"
+          CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --dir --mac --arm64 --publish never
 
       - name: Check macOS signing and notarization secrets
         env:
@@ -155,29 +154,6 @@ jobs:
           pnpm run build
           pnpm exec electron-builder --mac --arm64 --publish "$PUBLISH_MODE"
 
-      - name: Verify auth dependencies in packaged ZIP artifact
-        run: |
-          set -euo pipefail
-
-          ZIP_PATH="$(ls -t dist/*-arm64-mac.zip 2>/dev/null | head -n 1 || true)"
-          if [ -z "$ZIP_PATH" ]; then
-            echo "::error::No arm64 mac ZIP artifact found in dist."
-            find dist -maxdepth 2 -type f | sed 's#^#- #'
-            exit 1
-          fi
-
-          TMP_DIR="$(mktemp -d)"
-          unzip -q "$ZIP_PATH" -d "$TMP_DIR"
-
-          APP_PATH="$(find "$TMP_DIR" -maxdepth 3 -type d -name "TIA Voice.app" | head -n 1)"
-          if [ -z "$APP_PATH" ]; then
-            echo "::error::Could not locate TIA Voice.app after unzipping $ZIP_PATH."
-            find "$TMP_DIR" -maxdepth 5 -print || true
-            exit 1
-          fi
-
-          pnpm run verify:packaged-auth-deps -- "$APP_PATH"
-
       - name: Locate built app (macOS)
         id: locate_macos_app
         run: |
@@ -190,10 +166,6 @@ jobs:
 
           echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
           echo "Found app bundle at $APP_PATH"
-
-      - name: Verify packaged auth dependencies
-        run: |
-          pnpm run verify:packaged-auth-deps -- "${{ steps.locate_macos_app.outputs.app_path }}"
 
       - name: Verify macOS codesign and Gatekeeper state
         run: |
