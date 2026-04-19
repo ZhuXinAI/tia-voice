@@ -1,0 +1,274 @@
+name: Build and Publish
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release_macos:
+    name: Release macOS DMG
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Ensure tag points to main
+        if: github.event_name == 'push'
+        run: |
+          if git merge-base --is-ancestor "$GITHUB_SHA" "origin/main"; then
+            echo "Tag ${GITHUB_REF_NAME} points to a commit on origin/main."
+          else
+            echo "::error::Tag ${GITHUB_REF_NAME} does not point to a commit on origin/main."
+            exit 1
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Setup pnpm
+        run: |
+          npm install --global pnpm@10
+          pnpm --version
+
+      - name: Sync package version from release tag
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+
+          TAG_NAME="${GITHUB_REF_NAME}"
+          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tags must use semantic version format (for example: v1.2.3)."
+            exit 1
+          fi
+
+          RELEASE_VERSION="${TAG_NAME#v}"
+          CURRENT_VERSION="$(node -p "require('./package.json').version")"
+
+          if [ "$CURRENT_VERSION" != "$RELEASE_VERSION" ]; then
+            echo "Adjusting package version for CI build: $CURRENT_VERSION -> $RELEASE_VERSION"
+            npm pkg set version="$RELEASE_VERSION"
+          else
+            echo "package.json version already matches tag: $CURRENT_VERSION"
+          fi
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Preflight packaged auth dependency validation
+        run: |
+          pnpm run build
+          CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --dir --mac --arm64
+          pnpm run verify:packaged-auth-deps -- "dist/mac-arm64/TIA Voice.app"
+
+      - name: Check macOS signing, notarization, and R2 secrets
+        env:
+          HAS_MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE != '' }}
+          HAS_MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD != '' }}
+          HAS_KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD != '' }}
+          HAS_APPLE_ID: ${{ secrets.APPLE_ID != '' }}
+          HAS_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD != '' }}
+          HAS_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID != '' }}
+          HAS_AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID != '' }}
+          HAS_AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY != '' }}
+          HAS_S3_BUCKET: ${{ secrets.S3_BUCKET != '' }}
+          HAS_S3_REGION: ${{ secrets.S3_REGION != '' }}
+          HAS_S3_ENDPOINT: ${{ secrets.S3_ENDPOINT != '' }}
+        run: |
+          echo "MACOS_CERTIFICATE=$HAS_MACOS_CERTIFICATE"
+          echo "MACOS_CERTIFICATE_PASSWORD=$HAS_MACOS_CERTIFICATE_PASSWORD"
+          echo "KEYCHAIN_PASSWORD=$HAS_KEYCHAIN_PASSWORD"
+          echo "APPLE_ID=$HAS_APPLE_ID"
+          echo "APPLE_APP_SPECIFIC_PASSWORD=$HAS_APPLE_APP_SPECIFIC_PASSWORD"
+          echo "APPLE_TEAM_ID=$HAS_APPLE_TEAM_ID"
+          echo "AWS_ACCESS_KEY_ID=$HAS_AWS_ACCESS_KEY_ID"
+          echo "AWS_SECRET_ACCESS_KEY=$HAS_AWS_SECRET_ACCESS_KEY"
+          echo "S3_BUCKET=$HAS_S3_BUCKET"
+          echo "S3_REGION=$HAS_S3_REGION"
+          echo "S3_ENDPOINT=$HAS_S3_ENDPOINT"
+
+          if [ "$HAS_MACOS_CERTIFICATE" != "true" ] || [ "$HAS_MACOS_CERTIFICATE_PASSWORD" != "true" ] || [ "$HAS_KEYCHAIN_PASSWORD" != "true" ]; then
+            echo "::error::The macOS signing certificate secrets are incomplete."
+            exit 1
+          fi
+
+          if [ "$HAS_APPLE_ID" != "true" ] || [ "$HAS_APPLE_APP_SPECIFIC_PASSWORD" != "true" ] || [ "$HAS_APPLE_TEAM_ID" != "true" ]; then
+            echo "::error::The Apple notarization secrets are incomplete. Expected APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID."
+            exit 1
+          fi
+
+          if [ "$HAS_AWS_ACCESS_KEY_ID" != "true" ] || [ "$HAS_AWS_SECRET_ACCESS_KEY" != "true" ] || [ "$HAS_S3_BUCKET" != "true" ] || [ "$HAS_S3_REGION" != "true" ] || [ "$HAS_S3_ENDPOINT" != "true" ]; then
+            echo "::error::The R2 sync secrets are incomplete. Expected AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, S3_BUCKET, S3_REGION, and S3_ENDPOINT."
+            exit 1
+          fi
+
+      - name: Import Code Signing Certificate (macOS)
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          printf '%s' "$CERTIFICATE_BASE64" | tr -d '\r\n ' | base64 --decode > $CERTIFICATE_PATH
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          security import $CERTIFICATE_PATH -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+      - name: Build package and optionally publish to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          S3_PATH: ${{ secrets.S3_PATH }}
+        run: |
+          set -euo pipefail
+
+          PUBLISH_MODE="never"
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            PUBLISH_MODE="always"
+            RELEASE_ID=""
+            if gh release view "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+              RELEASE_ID="$(gh release view "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" --json id --jq '.id')"
+            fi
+
+            if [ -n "$RELEASE_ID" ]; then
+              echo "Cleaning existing assets from release ${GITHUB_REF_NAME} (id: $RELEASE_ID)"
+              gh release view "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" --json assets --jq '.assets[] | "\(.id)\t\(.name)"' \
+                | while IFS=$'\t' read -r asset_id asset_name; do
+                    if [ -z "$asset_id" ]; then
+                      continue
+                    fi
+                    echo "Deleting existing release asset: $asset_name"
+                    gh api -X DELETE "repos/${{ github.repository }}/releases/assets/$asset_id" >/dev/null
+                  done
+            else
+              echo "No existing release found for ${GITHUB_REF_NAME}; skipping asset cleanup."
+            fi
+          fi
+
+          UPDATE_BASE_URL="${S3_ENDPOINT%/}/${S3_BUCKET}"
+          SANITIZED_PATH="$(printf '%s' "${S3_PATH:-}" | sed -E 's#^/+##; s#/+$##')"
+          if [ -n "$SANITIZED_PATH" ]; then
+            UPDATE_BASE_URL="$UPDATE_BASE_URL/$SANITIZED_PATH"
+          fi
+
+          printf '{\n  "url": "%s"\n}\n' "$UPDATE_BASE_URL" > resources/auto-update-feed.json
+          echo "Generated resources/auto-update-feed.json with R2 auto-update URL."
+
+          echo "electron-builder publish mode: $PUBLISH_MODE"
+          pnpm run build
+          pnpm exec electron-builder --mac --arm64 --publish "$PUBLISH_MODE"
+
+      - name: Verify auth dependencies in packaged ZIP artifact
+        run: |
+          set -euo pipefail
+
+          ZIP_PATH="$(ls -t dist/*-arm64-mac.zip 2>/dev/null | head -n 1 || true)"
+          if [ -z "$ZIP_PATH" ]; then
+            echo "::error::No arm64 mac ZIP artifact found in dist."
+            find dist -maxdepth 2 -type f | sed 's#^#- #'
+            exit 1
+          fi
+
+          TMP_DIR="$(mktemp -d)"
+          unzip -q "$ZIP_PATH" -d "$TMP_DIR"
+
+          APP_PATH="$(find "$TMP_DIR" -maxdepth 3 -type d -name "TIA Voice.app" | head -n 1)"
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::Could not locate TIA Voice.app after unzipping $ZIP_PATH."
+            find "$TMP_DIR" -maxdepth 5 -print || true
+            exit 1
+          fi
+
+          pnpm run verify:packaged-auth-deps -- "$APP_PATH"
+
+      - name: Sync updater artifacts to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.S3_REGION }}
+          AWS_DEFAULT_REGION: ${{ secrets.S3_REGION }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          S3_PATH: ${{ secrets.S3_PATH }}
+        run: |
+          set -euo pipefail
+
+          if ! command -v aws >/dev/null 2>&1; then
+            echo "::error::AWS CLI is not available on the runner."
+            exit 1
+          fi
+
+          TARGET_PREFIX="s3://$S3_BUCKET"
+          if [ -n "${S3_PATH:-}" ]; then
+            TARGET_PREFIX="$TARGET_PREFIX/$S3_PATH"
+          fi
+
+          echo "Syncing release artifacts to $TARGET_PREFIX"
+
+          if ! find dist -maxdepth 1 -type f \( -name "*.dmg" -o -name "*-mac.zip" \) | grep -q .; then
+            echo "::error::No DMG/ZIP artifacts found in dist."
+            find dist -maxdepth 2 -type f | sed 's#^#- #'
+            exit 1
+          fi
+
+          aws s3 sync dist "$TARGET_PREFIX/" \
+            --endpoint-url "$S3_ENDPOINT" \
+            --no-progress \
+            --exclude "*" \
+            --include "latest-mac.yml" \
+            --include "*.dmg" \
+            --include "*.dmg.blockmap" \
+            --include "*-mac.zip" \
+            --include "*.zip.blockmap"
+
+      - name: Locate built app (macOS)
+        id: locate_macos_app
+        run: |
+          APP_PATH=$(find dist -maxdepth 3 -name "*.app" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::Could not find a built .app bundle in dist."
+            find dist -maxdepth 3 -print || true
+            exit 1
+          fi
+
+          echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
+          echo "Found app bundle at $APP_PATH"
+
+      - name: Verify packaged auth dependencies
+        run: |
+          pnpm run verify:packaged-auth-deps -- "${{ steps.locate_macos_app.outputs.app_path }}"
+
+      - name: Verify macOS codesign and Gatekeeper state
+        run: |
+          codesign --verify --deep --strict --verbose=2 "${{ steps.locate_macos_app.outputs.app_path }}"
+          spctl -a -vvv --type exec "${{ steps.locate_macos_app.outputs.app_path }}"
+          xcrun stapler validate "${{ steps.locate_macos_app.outputs.app_path }}"
+
+      - name: Cleanup Keychain (macOS)
+        if: always()
+        run: |
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true

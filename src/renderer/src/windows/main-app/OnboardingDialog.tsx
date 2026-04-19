@@ -1,0 +1,59 @@
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from '@renderer/components/ui/dialog'
+
+import { OnboardingFlow } from '../onboarding/OnboardingFlow'
+
+type OnboardingDialogProps = {
+  open: boolean
+  dashscopeConfigured: boolean
+  dashscopeKeyLabel: string | null
+  hotkeyHint: string
+  registeredHotkey: 'MetaRight' | 'AltRight' | null
+  registeredHotkeyLabel: string | null
+  onOpenChange: (open: boolean) => void
+  onComplete: () => Promise<void>
+  onSkip: () => Promise<void>
+}
+
+export function OnboardingDialog(props: OnboardingDialogProps): React.JSX.Element {
+  const {
+    open,
+    dashscopeConfigured,
+    dashscopeKeyLabel,
+    hotkeyHint,
+    registeredHotkey,
+    registeredHotkeyLabel,
+    onOpenChange,
+    onComplete,
+    onSkip
+  } = props
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] w-[min(920px,94vw)] max-w-none overflow-y-auto border border-border/70 bg-background/95 p-0 text-foreground shadow-2xl backdrop-blur-xl">
+        <DialogHeader className="sr-only">
+          <DialogTitle>Setup TIA Voice</DialogTitle>
+          <DialogDescription>
+            Add your DashScope key, grant permission, and try voice typing.
+          </DialogDescription>
+        </DialogHeader>
+
+        <OnboardingFlow
+          initialDashscopeConfigured={dashscopeConfigured}
+          initialDashscopeKeyLabel={dashscopeKeyLabel}
+          hotkeyHint={hotkeyHint}
+          registeredHotkey={registeredHotkey}
+          registeredHotkeyLabel={registeredHotkeyLabel}
+          mode="dialog"
+          onComplete={onComplete}
+          onSkip={onSkip}
+        />
+      </DialogContent>
+    </Dialog>
+  )
+}

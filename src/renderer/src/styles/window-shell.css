@@ -1,0 +1,380 @@
+body {
+  overflow: hidden;
+  user-select: none;
+}
+
+body[data-window-role='recording-bar'] {
+  background: transparent !important;
+}
+
+.window {
+  min-height: 100vh;
+}
+
+.main-app-window {
+  padding: 40px;
+}
+
+.hero-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 0.9fr);
+  gap: 20px;
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  background: linear-gradient(145deg, rgba(14, 20, 30, 0.92), rgba(30, 36, 50, 0.74));
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.28);
+}
+
+.eyebrow,
+.panel-kicker,
+.chat-label,
+.recording-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(240, 180, 93, 0.16);
+  color: var(--accent);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.hero-panel h1,
+.panel h2 {
+  margin: 14px 0 12px;
+  font-size: clamp(34px, 5vw, 52px);
+  line-height: 0.96;
+}
+
+.hero-panel p,
+.panel p,
+.chat-body,
+.recording-copy p,
+.account-summary {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.hero-metrics {
+  display: grid;
+  gap: 14px;
+}
+
+.hero-metrics article,
+.panel,
+.chat-card {
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: var(--surface);
+  backdrop-filter: blur(22px);
+}
+
+.hero-metrics article {
+  padding: 18px;
+}
+
+.hero-metrics span,
+.history-list span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.hero-metrics strong,
+.history-list strong,
+.recording-copy strong,
+.account-summary strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 22px;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.panel {
+  padding: 22px;
+}
+
+.auth-panel,
+.status-panel,
+.history-panel {
+  min-height: 220px;
+}
+
+.history-panel {
+  grid-column: span 2;
+}
+
+.history-list {
+  display: grid;
+  gap: 14px;
+  padding: 0;
+  margin: 18px 0 0;
+  list-style: none;
+}
+
+.history-list li {
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+  display: grid;
+  gap: 8px;
+}
+
+.history-status {
+  display: inline-flex;
+  width: fit-content;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.history-status--completed {
+  background: rgba(124, 227, 179, 0.2);
+  color: var(--success);
+}
+
+.history-status--pending {
+  background: rgba(240, 180, 93, 0.2);
+  color: var(--accent);
+}
+
+.history-status--failed {
+  background: rgba(255, 143, 122, 0.2);
+  color: var(--danger);
+}
+
+.history-error {
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.retry-button {
+  width: fit-content;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.retry-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.primary-button {
+  margin-top: 18px;
+  padding: 12px 18px;
+  border: 0;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(255, 174, 89, 0.95), rgba(255, 126, 76, 0.92));
+  color: #1d1104;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.primary-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.secondary-button {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.status-note {
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.status-note--error {
+  color: #ff9d8a;
+}
+
+.chat-window,
+.recording-bar-window {
+  display: grid;
+  place-items: center;
+  background: transparent;
+}
+
+.chat-card {
+  width: min(100vw - 24px, 340px);
+  min-height: 190px;
+  padding: 18px;
+  background: linear-gradient(160deg, rgba(18, 25, 35, 0.86), rgba(8, 12, 20, 0.92));
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.24);
+}
+
+.chat-headline {
+  margin: 14px 0 10px;
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+.thinking-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  color: var(--text-muted);
+}
+
+.thinking-indicator__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.thinking-indicator--thinking .thinking-indicator__dot {
+  background: var(--accent-strong);
+  box-shadow: 0 0 0 10px rgba(255, 142, 83, 0.12);
+  animation: pulse 1.15s infinite ease-out;
+}
+
+.thinking-indicator--done .thinking-indicator__dot {
+  background: #68d391;
+}
+
+.thinking-indicator--error .thinking-indicator__dot {
+  background: #f56565;
+}
+
+.recording-pill {
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.recording-pill--minimal {
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+
+.recording-hud {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(10, 16, 24, 0.56);
+  border: 1px solid rgba(248, 216, 143, 0.22);
+}
+
+.waveform-canvas {
+  width: 60px;
+  height: 60px;
+  display: block;
+}
+
+.recording-indicator {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: rgba(248, 216, 143, 0.35);
+}
+
+.recording-indicator--recording {
+  background: #f8d88f;
+  box-shadow: 0 0 0 6px rgba(248, 216, 143, 0.16);
+  animation: recording-indicator-pulse 1.1s ease-out infinite;
+}
+
+.recording-indicator--processing {
+  background: #ffb86c;
+}
+
+.recording-loader {
+  width: 60px;
+  height: 60px;
+  display: grid;
+  place-items: center;
+}
+
+.recording-loader__spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(248, 216, 143, 0.25);
+  border-top-color: #f8d88f;
+  animation: recording-spin 0.8s linear infinite;
+}
+
+@keyframes recording-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes recording-indicator-pulse {
+  0% {
+    box-shadow: 0 0 0 2px rgba(248, 216, 143, 0.2);
+  }
+
+  70% {
+    box-shadow: 0 0 0 7px rgba(248, 216, 143, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 2px rgba(248, 216, 143, 0);
+  }
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(0.96);
+    opacity: 0.72;
+  }
+
+  70% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(0.96);
+    opacity: 0.72;
+  }
+}
+
+@media (max-width: 920px) {
+  .main-app-window {
+    padding: 18px;
+  }
+
+  .hero-panel,
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .history-panel {
+    grid-column: span 1;
+  }
+}

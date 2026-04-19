@@ -1,0 +1,56 @@
+:root {
+  --bg: var(--background);
+  --bg-soft: color-mix(in oklch, var(--background) 92%, var(--foreground) 8%);
+  --surface: color-mix(in oklch, var(--card) 82%, transparent);
+  --surface-strong: var(--card);
+  --text: var(--foreground);
+  --text-muted: var(--muted-foreground);
+  --accent: var(--primary);
+  --accent-strong: color-mix(in oklch, var(--primary) 72%, var(--foreground) 28%);
+  --success: oklch(0.72 0.16 154);
+  --danger: var(--destructive);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+  width: 100%;
+}
+
+body {
+  color: var(--foreground);
+  background:
+    radial-gradient(
+      circle at 10% 0%,
+      color-mix(in oklch, var(--primary) 16%, transparent),
+      transparent 38%
+    ),
+    radial-gradient(
+      circle at 90% 100%,
+      color-mix(in oklch, var(--secondary) 18%, transparent),
+      transparent 36%
+    ),
+    linear-gradient(
+      160deg,
+      color-mix(in oklch, var(--background) 94%, black 6%) 0%,
+      var(--background) 44%,
+      color-mix(in oklch, var(--background) 96%, white 4%) 100%
+    );
+  font-family: 'Avenir Next', 'Segoe UI', 'Helvetica Neue', sans-serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
