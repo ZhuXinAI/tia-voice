@@ -44,7 +44,7 @@ appImage:
 npmRebuild: false
 publish:
   provider: github
-  owner: windht
+  owner: ZhuXinAI
   repo: tia-voice
 electronDownload:
   mirror: https://npmmirror.com/mirrors/electron/

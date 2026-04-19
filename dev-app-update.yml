@@ -1,4 +1,4 @@
 provider: github
-owner: windht
+owner: ZhuXinAI
 repo: tia-voice
 updaterCacheDirName: tia-voice-updater
