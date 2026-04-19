@@ -148,4 +148,37 @@ describe('createVoicePipeline', () => {
     expect(historyStore.readAudioClip).toHaveBeenCalledWith('history-1')
     expect(historyStore.updateHistoryEntry).toHaveBeenCalled()
   })
+
+  it('ignores a new live capture while a previous one is still active', async () => {
+    const captureSnapshot = vi
+      .fn()
+      .mockResolvedValue({ isInputFocused: true, selectedText: 'first', provider: 'noop', capturedAt: 1 })
+    const sessionStore = {
+      begin: vi.fn(),
+      getCurrent: vi.fn().mockReturnValue(null),
+      clear: vi.fn()
+    }
+    const pipeline = createVoicePipeline({
+      contextProvider: { captureSnapshot },
+      asrProvider: { transcribe: vi.fn().mockResolvedValue({ text: 'hello world' }) },
+      llmProvider: { transform: vi.fn().mockResolvedValue({ text: 'Hello world.' }) },
+      actionExecutor: { execute: vi.fn().mockResolvedValue(undefined) },
+      sessionStore,
+      historyStore: {
+        appendHistory: vi.fn(),
+        updateHistoryEntry: vi.fn(),
+        getHistoryEntry: vi.fn(),
+        saveAudioClip: vi.fn().mockResolvedValue(null),
+        readAudioClip: vi.fn()
+      },
+      notifyChatWindow: vi.fn(),
+      hideRecordingBar: vi.fn()
+    })
+
+    await expect(pipeline.beginCapture()).resolves.toBe(true)
+    await expect(pipeline.beginCapture()).resolves.toBe(false)
+
+    expect(captureSnapshot).toHaveBeenCalledOnce()
+    expect(sessionStore.begin).toHaveBeenCalledOnce()
+  })
 })

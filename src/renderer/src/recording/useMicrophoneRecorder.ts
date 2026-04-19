@@ -41,84 +41,100 @@ export function useMicrophoneRecorder(input: {
   const [error, setError] = useState<string | null>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
   const recorderRef = useRef<MediaRecorder | null>(null)
-  const chunksRef = useRef<Blob[]>([])
-  const startedAtRef = useRef<number>(0)
+  const statusRef = useRef<RecorderStatus>('idle')
   const mimeType = useMemo(resolveMimeType, [])
+
+  const setRecorderStatus = useCallback((nextStatus: RecorderStatus) => {
+    statusRef.current = nextStatus
+    setStatus(nextStatus)
+  }, [])
 
   const cleanupStream = useCallback((activeStream: MediaStream | null) => {
     activeStream?.getTracks().forEach((track) => track.stop())
     setStream(null)
   }, [])
 
-  const stop = useCallback(async () => {
+  const stop = useCallback(async (): Promise<boolean> => {
     const recorder = recorderRef.current
     if (!recorder || recorder.state === 'inactive') {
-      return
+      return false
     }
 
-    setStatus('stopping')
+    setRecorderStatus('stopping')
     recorder.stop()
-  }, [])
+    return true
+  }, [setRecorderStatus])
 
-  const start = useCallback(async () => {
-    if (recorderRef.current?.state === 'recording') {
-      return
+  const start = useCallback(async (): Promise<boolean> => {
+    if (statusRef.current !== 'idle' || recorderRef.current) {
+      return false
     }
+
+    let liveStream: MediaStream | null = null
 
     try {
+      setRecorderStatus('recording')
       setError(null)
-      const liveStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      liveStream = await navigator.mediaDevices.getUserMedia({ audio: true })
       setStream(liveStream)
-      chunksRef.current = []
-      startedAtRef.current = Date.now()
+
+      const recordingChunks: Blob[] = []
+      const recordingStartedAt = Date.now()
 
       const recorder = mimeType ? new MediaRecorder(liveStream, { mimeType }) : new MediaRecorder(liveStream)
       recorderRef.current = recorder
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
-          chunksRef.current.push(event.data)
+          recordingChunks.push(event.data)
         }
       }
 
       recorder.onerror = () => {
-        setStatus('error')
+        setRecorderStatus('error')
         setError('Microphone recorder failed.')
         cleanupStream(liveStream)
+        if (recorderRef.current === recorder) {
+          recorderRef.current = null
+        }
       }
 
       recorder.onstop = async () => {
         try {
-          const blob = new Blob(chunksRef.current, { type: recorder.mimeType || mimeType || 'audio/webm' })
+          const blob = new Blob(recordingChunks, { type: recorder.mimeType || mimeType || 'audio/webm' })
           const buffer = new Uint8Array(await blob.arrayBuffer())
 
           if (buffer.byteLength > 0) {
             await input.onComplete({
               mimeType: blob.type || 'audio/webm',
               buffer,
-              durationMs: Date.now() - startedAtRef.current,
+              durationMs: Date.now() - recordingStartedAt,
               sizeBytes: buffer.byteLength
             })
           }
 
-          setStatus('idle')
+          setRecorderStatus('idle')
         } catch (submitError) {
-          setStatus('error')
+          setRecorderStatus('error')
           setError(submitError instanceof Error ? submitError.message : 'Failed to submit recording.')
         } finally {
           cleanupStream(liveStream)
-          recorderRef.current = null
-          chunksRef.current = []
+          if (recorderRef.current === recorder) {
+            recorderRef.current = null
+          }
         }
       }
 
       recorder.start(120)
-      setStatus('recording')
+      return true
     } catch (startError) {
-      setStatus('error')
+      setRecorderStatus('error')
       setError(startError instanceof Error ? startError.message : 'Microphone permission failed.')
+      recorderRef.current = null
+      cleanupStream(liveStream)
+      return false
     }
-  }, [cleanupStream, input, mimeType])
+  }, [cleanupStream, input, mimeType, setRecorderStatus])
 
   return {
     error,

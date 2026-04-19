@@ -389,7 +389,7 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <Button onClick={() => void openPermissionSettings('microphone')} type="button">
-                Open Microphone Settings
+                Request Microphone Permission
               </Button>
               <Button
                 variant="outline"

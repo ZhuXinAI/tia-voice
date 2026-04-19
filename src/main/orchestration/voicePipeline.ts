@@ -43,10 +43,13 @@ export function createVoicePipeline(dependencies: {
   hideRecordingBar(): void
   prepareBeforeTranscribe?: () => Promise<void>
 }): {
-  beginCapture(): Promise<void>
+  beginCapture(): Promise<boolean>
+  cancelCapture(): void
   finishRecording(artifact: RecordingArtifact): Promise<void>
   retryHistoryEntry(historyId: string): Promise<void>
 } {
+  let liveCaptureState: 'idle' | 'capturing' | 'processing' = 'idle'
+
   const processArtifact = async (input: {
     historyId: string
     artifact: RecordingArtifact
@@ -161,10 +164,31 @@ export function createVoicePipeline(dependencies: {
 
   return {
     async beginCapture() {
-      const snapshot = await dependencies.contextProvider.captureSnapshot()
-      dependencies.sessionStore.begin(snapshot)
+      if (liveCaptureState !== 'idle') {
+        logDebug('voice-pipeline', 'Ignored beginCapture while another live capture is active', {
+          liveCaptureState
+        })
+        return false
+      }
+
+      liveCaptureState = 'capturing'
+
+      try {
+        const snapshot = await dependencies.contextProvider.captureSnapshot()
+        dependencies.sessionStore.begin(snapshot)
+        return true
+      } catch (error) {
+        liveCaptureState = 'idle'
+        throw error
+      }
+    },
+    cancelCapture() {
+      liveCaptureState = 'idle'
+      dependencies.sessionStore.clear()
     },
     async finishRecording(artifact: RecordingArtifact) {
+      liveCaptureState = 'processing'
+
       if (artifact.durationMs < MIN_RECORDING_DURATION_MS) {
         logDebug('voice-pipeline', 'Ignoring short recording artifact', {
           durationMs: artifact.durationMs,
@@ -177,6 +201,7 @@ export function createVoicePipeline(dependencies: {
         dependencies.hideRecordingBar()
         dependencies.notifyChatWindow({ phase: 'idle' })
         dependencies.sessionStore.clear()
+        liveCaptureState = 'idle'
         return
       }
 
@@ -221,6 +246,8 @@ export function createVoicePipeline(dependencies: {
         closeRecordingBarBeforeInject: true,
         source: 'live'
       })
+
+      liveCaptureState = 'idle'
     },
     async retryHistoryEntry(historyId: string) {
       const existing = dependencies.historyStore.getHistoryEntry(historyId)

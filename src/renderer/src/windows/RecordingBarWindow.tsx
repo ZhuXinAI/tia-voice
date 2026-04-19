@@ -15,15 +15,27 @@ export default function RecordingBarWindow(): React.JSX.Element {
   useEffect(() => {
     return subscribeToRecordingCommand((command) => {
       if (command.type === 'start') {
-        setPhase('recording')
         void recorder.start()
         return
       }
 
-      setPhase('processing')
       void recorder.stop()
     })
   }, [recorder])
+
+  useEffect(() => {
+    if (recorder.status === 'recording') {
+      setPhase('recording')
+      return
+    }
+
+    if (recorder.status === 'stopping') {
+      setPhase('processing')
+      return
+    }
+
+    setPhase('idle')
+  }, [recorder.status])
 
   useEffect(() => {
     if (recorder.status === 'error' && recorder.error) {

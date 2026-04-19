@@ -170,7 +170,10 @@ function buildPermissionState(snapshot: PermissionSnapshot): PermissionStatePayl
             ? 'Microphone permission pending'
             : 'Microphone required',
         description: 'Enable microphone access in System Settings so TIA Voice can capture speech.',
-        ctaLabel: 'Open Microphone Settings'
+        ctaLabel:
+          snapshot.status === 'not-determined'
+            ? 'Request Microphone Permission'
+            : 'Open Microphone Settings'
       }
 }
 
@@ -346,6 +349,7 @@ async function checkMicrophonePermission(prompt: boolean): Promise<boolean> {
 export async function bootstrapApplication(): Promise<void> {
   const env = loadAppEnv({ platform: process.platform, env: process.env })
 
+  app.setName('TIA Voice')
   await app.whenReady()
   logDebug('app', 'Application ready', {
     logPath: getDebugLogPath(),
@@ -747,7 +751,11 @@ export async function bootstrapApplication(): Promise<void> {
       return
     }
 
-    await voicePipeline.beginCapture()
+    const didBeginCapture = await voicePipeline.beginCapture()
+    if (!didBeginCapture) {
+      return
+    }
+
     windowManager.showRecordingBar({
       type: 'start',
       startedAt: Date.now()
@@ -925,7 +933,20 @@ export async function bootstrapApplication(): Promise<void> {
     checkAccessibilityPermission: (prompt) => checkAccessibilityPermission(prompt),
     checkMicrophonePermission: (prompt) => checkMicrophonePermission(prompt),
     openPermissionSettings: async (permission) => {
+      if (permission === 'microphone') {
+        const grantedAfterPrompt = await checkMicrophonePermission(true)
+        logDebug('microphone', 'Handled explicit microphone permission request', {
+          grantedAfterPrompt
+        })
+
+        syncAppState()
+        if (grantedAfterPrompt) {
+          return
+        }
+      }
+
       await openPermissionSettingsPanel(permission)
+      syncAppState()
     },
     resetOnboarding: () => {
       if (!is.dev) {
@@ -944,7 +965,7 @@ export async function bootstrapApplication(): Promise<void> {
       bringMainWindowToFront()
     },
     reportRecordingFailure: (detail) => {
-      sessionStore.clear()
+      voicePipeline.cancelCapture()
       windowManager.hideRecordingBar()
       windowManager.setChatState({
         phase: 'error',

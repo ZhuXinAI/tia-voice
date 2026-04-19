@@ -40,9 +40,9 @@ const noopMainAppState = {
       kind: 'microphone' as const,
       granted: false,
       status: 'not-determined' as const,
-      label: 'Microphone required',
-      description: 'Enable microphone access in System Settings so TIA Voice can capture audio.',
-      ctaLabel: 'Open Microphone Settings'
+      label: 'Microphone permission pending',
+      description: 'Enable microphone access in System Settings so TIA Voice can capture speech.',
+      ctaLabel: 'Request Microphone Permission'
     }
   },
   history: []

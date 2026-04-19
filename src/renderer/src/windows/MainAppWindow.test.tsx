@@ -40,8 +40,8 @@ const baseState = {
       granted: false,
       status: 'not-determined' as const,
       label: 'Microphone permission pending',
-      description: 'Enable microphone access in System Settings so TIA Voice can capture audio.',
-      ctaLabel: 'Open Microphone Settings'
+      description: 'Enable microphone access in System Settings so TIA Voice can capture speech.',
+      ctaLabel: 'Request Microphone Permission'
     }
   },
   history: []
@@ -204,6 +204,20 @@ describe('MainAppWindow', () => {
       expect(showOnboardingWindowMock).toHaveBeenCalled()
     })
     expect(await screen.findByRole('button', { name: /skip/i })).toBeInTheDocument()
+  })
+
+  it('routes microphone permission requests through settings', async () => {
+    getMainAppStateMock.mockResolvedValue(baseState)
+
+    render(<MainAppWindow />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /settings/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^permissions$/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /request microphone permission/i }))
+
+    await waitFor(() => {
+      expect(openPermissionSettingsMock).toHaveBeenCalledWith('microphone')
+    })
   })
 
   it('opens history debug details when a transcription item is clicked', async () => {
