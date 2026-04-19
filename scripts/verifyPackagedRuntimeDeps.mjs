@@ -21,7 +21,8 @@ function resolveAsarPath(inputPath) {
 }
 
 function main() {
-  const inputPath = process.argv[2]
+  const args = process.argv.slice(2).filter((arg) => arg !== '--')
+  const inputPath = args[0]
 
   if (!inputPath) {
     console.error('Usage: node scripts/verifyPackagedRuntimeDeps.mjs <path-to-app-or-app.asar>')
