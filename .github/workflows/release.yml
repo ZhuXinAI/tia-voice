@@ -13,9 +13,9 @@ permissions:
   contents: write
 
 jobs:
-  release_macos:
-    name: Release macOS DMG
-    runs-on: macos-latest
+  prepare_release:
+    name: Prepare Release Metadata
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
@@ -32,6 +32,34 @@ jobs:
             echo "::error::Tag ${GITHUB_REF_NAME} does not point to a commit on origin/main."
             exit 1
           fi
+
+      - name: Ensure GitHub release exists for tag
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release ${GITHUB_REF_NAME} already exists."
+            exit 0
+          fi
+
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "${{ github.repository }}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes
+
+  release_macos:
+    name: Release macOS DMG
+    needs: prepare_release
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -137,14 +165,18 @@ jobs:
             fi
 
             if [ -n "$RELEASE_ID" ]; then
-              echo "Cleaning existing assets from release ${GITHUB_REF_NAME} (id: $RELEASE_ID)"
+              echo "Cleaning existing macOS assets from release ${GITHUB_REF_NAME} (id: $RELEASE_ID)"
               gh release view "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" --json assets --jq '.assets[] | "\(.id)\t\(.name)"' \
                 | while IFS=$'\t' read -r asset_id asset_name; do
                     if [ -z "$asset_id" ]; then
                       continue
                     fi
-                    echo "Deleting existing release asset: $asset_name"
-                    gh api -X DELETE "repos/${{ github.repository }}/releases/assets/$asset_id" >/dev/null
+                    case "$asset_name" in
+                      *.dmg|*.dmg.blockmap|*-arm64-mac.zip|*-arm64-mac.zip.blockmap|latest-mac.yml)
+                        echo "Deleting existing macOS release asset: $asset_name"
+                        gh api -X DELETE "repos/${{ github.repository }}/releases/assets/$asset_id" >/dev/null
+                        ;;
+                    esac
                   done
             else
               echo "No existing release found for ${GITHUB_REF_NAME}; skipping asset cleanup."
@@ -205,3 +237,116 @@ jobs:
         if: always()
         run: |
           security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+
+  release_windows:
+    name: Release Windows Installer
+    needs: prepare_release
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Setup pnpm
+        run: |
+          npm install --global pnpm@10
+          pnpm --version
+
+      - name: Sync package version from release tag
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+
+          TAG_NAME="${GITHUB_REF_NAME}"
+          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tags must use semantic version format (for example: v1.2.3)."
+            exit 1
+          fi
+
+          RELEASE_VERSION="${TAG_NAME#v}"
+          CURRENT_VERSION="$(node -p "require('./package.json').version")"
+
+          if [ "$CURRENT_VERSION" != "$RELEASE_VERSION" ]; then
+            echo "Adjusting package version for CI build: $CURRENT_VERSION -> $RELEASE_VERSION"
+            npm pkg set version="$RELEASE_VERSION"
+          else
+            echo "package.json version already matches tag: $CURRENT_VERSION"
+          fi
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Preflight packaged build validation
+        run: |
+          pnpm run build
+          pnpm exec electron-builder --dir --win --x64 --publish never
+          pnpm run verify:packaged-runtime-deps -- "dist/win-unpacked"
+
+      - name: Build package and optionally publish to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          PUBLISH_MODE="never"
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            PUBLISH_MODE="always"
+            RELEASE_ID=""
+            if gh release view "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+              RELEASE_ID="$(gh release view "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" --json id --jq '.id')"
+            fi
+
+            if [ -n "$RELEASE_ID" ]; then
+              echo "Cleaning existing Windows assets from release ${GITHUB_REF_NAME} (id: $RELEASE_ID)"
+              gh release view "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" --json assets --jq '.assets[] | "\(.id)\t\(.name)"' \
+                | while IFS=$'\t' read -r asset_id asset_name; do
+                    if [ -z "$asset_id" ]; then
+                      continue
+                    fi
+                    case "$asset_name" in
+                      *-setup.exe|*.exe.blockmap|latest.yml)
+                        echo "Deleting existing Windows release asset: $asset_name"
+                        gh api -X DELETE "repos/${{ github.repository }}/releases/assets/$asset_id" >/dev/null
+                        ;;
+                    esac
+                  done
+            else
+              echo "No existing release found for ${GITHUB_REF_NAME}; skipping asset cleanup."
+            fi
+          fi
+
+          echo "electron-builder publish mode: $PUBLISH_MODE"
+          pnpm run build
+          pnpm exec electron-builder --win --x64 --publish "$PUBLISH_MODE"
+
+      - name: Verify built Windows artifacts exist
+        run: |
+          set -euo pipefail
+
+          SETUP_PATH="$(ls -t dist/*-setup.exe 2>/dev/null | head -n 1 || true)"
+          if [ -z "$SETUP_PATH" ]; then
+            echo "::error::No Windows setup executable found in dist."
+            find dist -maxdepth 2 -type f | sed 's#^#- #'
+            exit 1
+          fi
+
+          if [ ! -f "dist/latest.yml" ]; then
+            echo "::error::dist/latest.yml was not generated for Windows auto-updates."
+            find dist -maxdepth 2 -type f | sed 's#^#- #'
+            exit 1
+          fi
+
+          echo "Verified Windows artifacts:"
+          echo "- $SETUP_PATH"
+          echo "- dist/latest.yml"

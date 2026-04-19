@@ -17,7 +17,25 @@ function resolveAsarPath(inputPath) {
     return absolutePath
   }
 
-  return join(absolutePath, 'Contents', 'Resources', 'app.asar')
+  const macAsarPath = join(absolutePath, 'Contents', 'Resources', 'app.asar')
+  if (existsSync(macAsarPath)) {
+    return macAsarPath
+  }
+
+  const windowsAsarPath = join(absolutePath, 'resources', 'app.asar')
+  if (existsSync(windowsAsarPath)) {
+    return windowsAsarPath
+  }
+
+  if (absolutePath.endsWith('.app')) {
+    return macAsarPath
+  }
+
+  if (absolutePath.endsWith('.exe')) {
+    return join(resolve(absolutePath, '..'), 'resources', 'app.asar')
+  }
+
+  return windowsAsarPath
 }
 
 function main() {
