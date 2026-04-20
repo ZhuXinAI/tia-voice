@@ -77,12 +77,18 @@ importers:
       electron-updater:
         specifier: ^6.3.9
         version: 6.8.3
+      end-of-stream:
+        specifier: ^1.4.5
+        version: 1.4.5
       fast-deep-equal:
         specifier: ^3.1.3
         version: 3.1.3
       fast-uri:
         specifier: ^3.1.0
         version: 3.1.0
+      file-uri-to-path:
+        specifier: ^1.0.0
+        version: 1.0.0
       jimp:
         specifier: ^0.22.10
         version: 0.22.10(encoding@0.1.13)
@@ -101,6 +107,9 @@ importers:
       ms:
         specifier: ^2.1.3
         version: 2.1.3
+      once:
+        specifier: ^1.4.0
+        version: 1.4.0
       react-router-dom:
         specifier: ^7.14.0
         version: 7.14.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -122,6 +131,9 @@ importers:
       when-exit:
         specifier: ^2.1.5
         version: 2.1.5
+      wrappy:
+        specifier: ^1.0.2
+        version: 1.0.2
       zod:
         specifier: ^4.3.6
         version: 4.3.6
