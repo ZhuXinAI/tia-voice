@@ -47,5 +47,6 @@ publish:
   provider: github
   owner: ZhuXinAI
   repo: tia-voice
+  releaseType: release
 electronDownload:
   mirror: https://npmmirror.com/mirrors/electron/
