@@ -17,6 +17,9 @@ importers:
       '@jimp/custom':
         specifier: ^0.22.12
         version: 0.22.12(encoding@0.1.13)
+      '@jimp/plugins':
+        specifier: ^0.22.12
+        version: 0.22.12(@jimp/custom@0.22.12(encoding@0.1.13))
       '@jimp/types':
         specifier: ^0.22.12
         version: 0.22.12(@jimp/custom@0.22.12(encoding@0.1.13))
@@ -101,6 +104,9 @@ importers:
       react-router-dom:
         specifier: ^7.14.0
         version: 7.14.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      regenerator-runtime:
+        specifier: ^0.13.11
+        version: 0.13.11
       selection-hook:
         specifier: ^2.0.1
         version: 2.0.1
