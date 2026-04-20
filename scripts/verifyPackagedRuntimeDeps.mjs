@@ -1,59 +1,152 @@
-import { existsSync, readdirSync, statSync } from 'node:fs'
-import { resolve, join } from 'node:path'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 import { listPackage } from '@electron/asar'
 
-const REQUIRED_PACKAGES = [
+const ROOT_RUNTIME_PACKAGES = [
   'electron-updater',
-  'builder-util-runtime',
-  'debug',
-  'ms',
   'jimp',
-  '@jimp/custom',
-  '@jimp/core',
-  '@jimp/types',
-  '@jimp/plugins',
-  '@jimp/utils',
-  '@jimp/bmp',
-  '@jimp/gif',
-  '@jimp/jpeg',
-  '@jimp/png',
-  '@jimp/tiff',
-  '@jimp/plugin-blit',
-  '@jimp/plugin-blur',
-  '@jimp/plugin-circle',
-  '@jimp/plugin-color',
-  '@jimp/plugin-contain',
-  '@jimp/plugin-cover',
-  '@jimp/plugin-crop',
-  '@jimp/plugin-displace',
-  '@jimp/plugin-dither',
-  '@jimp/plugin-fisheye',
-  '@jimp/plugin-flip',
-  '@jimp/plugin-gaussian',
-  '@jimp/plugin-invert',
-  '@jimp/plugin-mask',
-  '@jimp/plugin-normalize',
-  '@jimp/plugin-print',
-  '@jimp/plugin-resize',
-  '@jimp/plugin-rotate',
-  '@jimp/plugin-scale',
-  '@jimp/plugin-shadow',
-  '@jimp/plugin-threshold',
-  'regenerator-runtime',
-  '@nut-tree-fork/nut-js',
-  '@nut-tree-fork/shared',
-  '@nut-tree-fork/provider-interfaces',
-  '@nut-tree-fork/default-clipboard-provider',
-  '@nut-tree-fork/libnut'
+  '@nut-tree-fork/nut-js'
 ]
-
-const REQUIRED_PACKAGE_PATHS = REQUIRED_PACKAGES.map(
-  (packageName) => `/node_modules/${packageName}/package.json`
-)
 
 function normalizeArchiveEntryPath(entryPath) {
   return `/${String(entryPath).replace(/\\/g, '/').replace(/^\/+/, '')}`
+}
+
+function readJsonFile(filePath) {
+  return JSON.parse(readFileSync(filePath, 'utf8'))
+}
+
+function findPackageRoot(resolvedEntryPath) {
+  let currentPath = dirname(resolvedEntryPath)
+
+  while (true) {
+    const packageJsonPath = join(currentPath, 'package.json')
+    if (existsSync(packageJsonPath)) {
+      const packageJson = readJsonFile(packageJsonPath)
+      if (typeof packageJson.name === 'string' && packageJson.name.length > 0) {
+        return currentPath
+      }
+    }
+
+    const parentPath = dirname(currentPath)
+    if (parentPath === currentPath) {
+      throw new Error(`Could not locate package.json for resolved path ${resolvedEntryPath}`)
+    }
+
+    currentPath = parentPath
+  }
+}
+
+function resolveInstalledPackage(packageName, fromPackageRoot) {
+  const requireFromPackage = createRequire(resolve(fromPackageRoot, 'package.json'))
+  const resolvedEntryPath = requireFromPackage.resolve(packageName)
+  if (!isAbsolute(resolvedEntryPath)) {
+    return null
+  }
+
+  const packageRoot = findPackageRoot(resolvedEntryPath)
+  const packageJson = readJsonFile(join(packageRoot, 'package.json'))
+
+  return {
+    name: packageJson.name,
+    packageRoot,
+    packageJson
+  }
+}
+
+function collectRequiredPackagePaths() {
+  const queue = ROOT_RUNTIME_PACKAGES.map((packageName) => ({
+    fromPackageRoot: process.cwd(),
+    isOptional: false,
+    isRoot: true,
+    packageName
+  }))
+  const requiredPackageNames = new Set()
+  const unresolvedTransitivePackages = []
+  const visitedPackages = new Set()
+
+  while (queue.length > 0) {
+    const current = queue.shift()
+
+    let resolvedPackage
+    try {
+      resolvedPackage = resolveInstalledPackage(current.packageName, current.fromPackageRoot)
+    } catch (error) {
+      if (current.isOptional) {
+        continue
+      }
+
+      const message = error instanceof Error ? error.message : String(error)
+      if (current.isRoot) {
+        console.error(`Could not resolve required runtime root package ${current.packageName}:`)
+        console.error(`- from ${current.fromPackageRoot}`)
+        console.error(`- ${message}`)
+        process.exit(1)
+      }
+
+      unresolvedTransitivePackages.push({
+        packageName: current.packageName,
+        fromPackageRoot: current.fromPackageRoot,
+        message
+      })
+      continue
+    }
+
+    if (!resolvedPackage) {
+      continue
+    }
+
+    if (visitedPackages.has(resolvedPackage.name)) {
+      continue
+    }
+
+    visitedPackages.add(resolvedPackage.name)
+    requiredPackageNames.add(resolvedPackage.name)
+
+    const dependencyEntries = [
+      ...Object.keys(resolvedPackage.packageJson.dependencies ?? {}).map((packageName) => ({
+        isOptional: false,
+        packageName
+      })),
+      ...Object.keys(resolvedPackage.packageJson.optionalDependencies ?? {}).map((packageName) => ({
+        isOptional: true,
+        packageName
+      }))
+    ]
+
+    for (const dependency of dependencyEntries) {
+      queue.push({
+        fromPackageRoot: resolvedPackage.packageRoot,
+        isOptional: dependency.isOptional,
+        isRoot: false,
+        packageName: dependency.packageName
+      })
+    }
+  }
+
+  if (unresolvedTransitivePackages.length > 0) {
+    const verboseFlagEnabled = process.env.VERIFY_RUNTIME_DEPS_VERBOSE === '1'
+    console.warn(
+      `Skipped ${unresolvedTransitivePackages.length} unresolved transitive runtime dependencies while building the verification graph.`
+    )
+
+    if (verboseFlagEnabled) {
+      for (const missingPackage of unresolvedTransitivePackages) {
+        console.warn(`- ${missingPackage.packageName} (from ${missingPackage.fromPackageRoot})`)
+        console.warn(`  ${missingPackage.message}`)
+      }
+    } else {
+      console.warn(
+        'Set VERIFY_RUNTIME_DEPS_VERBOSE=1 to print the unresolved dependency details.'
+      )
+    }
+  }
+
+  return [...requiredPackageNames]
+    .sort()
+    .map((packageName) => `/node_modules/${packageName}/package.json`)
 }
 
 function collectAsarPathsFromDirectory(directoryPath, maxDepth = 4, depth = 0, found = new Set()) {
@@ -129,6 +222,7 @@ function main() {
     process.exit(1)
   }
 
+  const requiredPackagePaths = collectRequiredPackagePaths()
   const asarPaths = resolveAsarPaths(inputPath).filter((asarPath) => existsSync(asarPath))
   if (asarPaths.length === 0) {
     console.error(`Packaged app archive not found for ${resolve(inputPath)}`)
@@ -139,7 +233,7 @@ function main() {
 
   for (const asarPath of asarPaths) {
     const entries = new Set(listPackage(asarPath).map(normalizeArchiveEntryPath))
-    const missing = REQUIRED_PACKAGE_PATHS.filter(
+    const missing = requiredPackagePaths.filter(
       (entry) => !entries.has(normalizeArchiveEntryPath(entry))
     )
 
