@@ -10,6 +10,10 @@ const REQUIRED_PACKAGE_PATHS = [
   '/node_modules/ms/package.json'
 ]
 
+function normalizeArchiveEntryPath(entryPath) {
+  return `/${String(entryPath).replace(/\\/g, '/').replace(/^\/+/, '')}`
+}
+
 function resolveAsarPath(inputPath) {
   const absolutePath = resolve(inputPath)
 
@@ -53,8 +57,8 @@ function main() {
     process.exit(1)
   }
 
-  const entries = new Set(listPackage(asarPath))
-  const missing = REQUIRED_PACKAGE_PATHS.filter((entry) => !entries.has(entry))
+  const entries = new Set(listPackage(asarPath).map(normalizeArchiveEntryPath))
+  const missing = REQUIRED_PACKAGE_PATHS.filter((entry) => !entries.has(normalizeArchiveEntryPath(entry)))
 
   if (missing.length > 0) {
     console.error(`Missing packaged runtime dependencies in ${asarPath}:`)
