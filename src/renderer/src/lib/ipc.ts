@@ -67,6 +67,7 @@ const noopApi: TiaApi = {
   resetOnboarding: async () => undefined,
   checkAccessibilityPermission: async () => true,
   checkMicrophonePermission: async () => true,
+  reportMicrophonePermissionGranted: async () => undefined,
   openPermissionSettings: async () => undefined,
   showOnboardingWindow: async () => undefined,
   logDebug: () => undefined,
@@ -165,6 +166,12 @@ export function checkMicrophonePermission(
   prompt: Parameters<TiaApi['checkMicrophonePermission']>[0]
 ): ReturnType<TiaApi['checkMicrophonePermission']> {
   return getApi().checkMicrophonePermission(prompt)
+}
+
+export function reportMicrophonePermissionGranted(): ReturnType<
+  TiaApi['reportMicrophonePermissionGranted']
+> {
+  return getApi().reportMicrophonePermissionGranted()
 }
 
 export function openPermissionSettings(

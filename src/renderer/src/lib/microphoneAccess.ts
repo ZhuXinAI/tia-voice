@@ -1,4 +1,8 @@
-import { checkMicrophonePermission, openPermissionSettings } from './ipc'
+import {
+  checkMicrophonePermission,
+  openPermissionSettings,
+  reportMicrophonePermissionGranted
+} from './ipc'
 
 export async function probeMicrophoneAccess(): Promise<boolean> {
   if (
@@ -23,6 +27,7 @@ export async function probeMicrophoneAccess(): Promise<boolean> {
 
 export async function requestMicrophonePermission(): Promise<boolean> {
   if (await probeMicrophoneAccess()) {
+    await reportMicrophonePermissionGranted()
     return true
   }
 

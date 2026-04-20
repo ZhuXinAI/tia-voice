@@ -7,7 +7,9 @@ const REQUIRED_PACKAGE_PATHS = [
   '/node_modules/electron-updater/package.json',
   '/node_modules/builder-util-runtime/package.json',
   '/node_modules/debug/package.json',
-  '/node_modules/ms/package.json'
+  '/node_modules/ms/package.json',
+  '/node_modules/jimp/package.json',
+  '/node_modules/@jimp/types/package.json'
 ]
 
 function normalizeArchiveEntryPath(entryPath) {
@@ -58,7 +60,9 @@ function main() {
   }
 
   const entries = new Set(listPackage(asarPath).map(normalizeArchiveEntryPath))
-  const missing = REQUIRED_PACKAGE_PATHS.filter((entry) => !entries.has(normalizeArchiveEntryPath(entry)))
+  const missing = REQUIRED_PACKAGE_PATHS.filter(
+    (entry) => !entries.has(normalizeArchiveEntryPath(entry))
+  )
 
   if (missing.length > 0) {
     console.error(`Missing packaged runtime dependencies in ${asarPath}:`)

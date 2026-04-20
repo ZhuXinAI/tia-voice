@@ -25,6 +25,7 @@ export const IPC_CHANNELS = {
     completeOnboarding: 'app:complete-onboarding',
     checkAccessibilityPermission: 'app:check-accessibility-permission',
     checkMicrophonePermission: 'app:check-microphone-permission',
+    reportMicrophonePermissionGranted: 'app:report-microphone-permission-granted',
     openPermissionSettings: 'app:open-permission-settings',
     resetOnboarding: 'app:reset-onboarding',
     showOnboardingWindow: 'app:show-onboarding-window'

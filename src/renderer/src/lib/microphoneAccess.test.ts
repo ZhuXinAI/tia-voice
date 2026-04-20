@@ -1,13 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { checkMicrophonePermissionMock, openPermissionSettingsMock } = vi.hoisted(() => ({
-  checkMicrophonePermissionMock: vi.fn(),
-  openPermissionSettingsMock: vi.fn()
-}))
+const { checkMicrophonePermissionMock, openPermissionSettingsMock, reportGrantedMock } = vi.hoisted(
+  () => ({
+    checkMicrophonePermissionMock: vi.fn(),
+    openPermissionSettingsMock: vi.fn(),
+    reportGrantedMock: vi.fn()
+  })
+)
 
 vi.mock('./ipc', () => ({
   checkMicrophonePermission: checkMicrophonePermissionMock,
-  openPermissionSettings: openPermissionSettingsMock
+  openPermissionSettings: openPermissionSettingsMock,
+  reportMicrophonePermissionGranted: reportGrantedMock
 }))
 
 import { probeMicrophoneAccess, requestMicrophonePermission } from './microphoneAccess'
@@ -17,6 +21,7 @@ describe('probeMicrophoneAccess', () => {
     vi.restoreAllMocks()
     checkMicrophonePermissionMock.mockReset()
     openPermissionSettingsMock.mockReset()
+    reportGrantedMock.mockReset()
   })
 
   it('resolves true and stops tracks after a successful probe', async () => {
@@ -52,6 +57,7 @@ describe('requestMicrophonePermission', () => {
     vi.restoreAllMocks()
     checkMicrophonePermissionMock.mockReset()
     openPermissionSettingsMock.mockReset()
+    reportGrantedMock.mockReset()
   })
 
   it('does not open settings when the renderer probe succeeds', async () => {
@@ -68,6 +74,7 @@ describe('requestMicrophonePermission', () => {
     await expect(requestMicrophonePermission()).resolves.toBe(true)
     expect(openPermissionSettingsMock).not.toHaveBeenCalled()
     expect(checkMicrophonePermissionMock).not.toHaveBeenCalled()
+    expect(reportGrantedMock).toHaveBeenCalledOnce()
   })
 
   it('falls back to System Settings when the renderer probe fails', async () => {
@@ -84,5 +91,6 @@ describe('requestMicrophonePermission', () => {
     await expect(requestMicrophonePermission()).resolves.toBe(false)
     expect(openPermissionSettingsMock).toHaveBeenCalledWith('microphone')
     expect(checkMicrophonePermissionMock).toHaveBeenCalledWith(false)
+    expect(reportGrantedMock).not.toHaveBeenCalled()
   })
 })

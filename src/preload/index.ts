@@ -110,6 +110,7 @@ export type TiaApi = {
   resetOnboarding(): Promise<void>
   checkAccessibilityPermission(prompt: boolean): Promise<boolean>
   checkMicrophonePermission(prompt: boolean): Promise<boolean>
+  reportMicrophonePermissionGranted(): Promise<void>
   openPermissionSettings(permission: PermissionKind): Promise<void>
   showOnboardingWindow(): Promise<void>
   logDebug(message: string, details?: unknown): void
@@ -134,6 +135,8 @@ const APP_COMPLETE_ONBOARDING_CHANNEL = IPC_CHANNELS.app.completeOnboarding
 const APP_RESET_ONBOARDING_CHANNEL = IPC_CHANNELS.app.resetOnboarding
 const APP_CHECK_ACCESSIBILITY_PERMISSION_CHANNEL = IPC_CHANNELS.app.checkAccessibilityPermission
 const APP_CHECK_MICROPHONE_PERMISSION_CHANNEL = IPC_CHANNELS.app.checkMicrophonePermission
+const APP_REPORT_MICROPHONE_PERMISSION_GRANTED_CHANNEL =
+  IPC_CHANNELS.app.reportMicrophonePermissionGranted
 const APP_OPEN_PERMISSION_SETTINGS_CHANNEL = IPC_CHANNELS.app.openPermissionSettings
 const APP_SHOW_ONBOARDING_WINDOW_CHANNEL = IPC_CHANNELS.app.showOnboardingWindow
 const electronBridge: ElectronBridge = {
@@ -210,6 +213,9 @@ const api: TiaApi = {
   },
   checkMicrophonePermission(prompt) {
     return ipcRenderer.invoke(APP_CHECK_MICROPHONE_PERMISSION_CHANNEL, prompt)
+  },
+  reportMicrophonePermissionGranted() {
+    return ipcRenderer.invoke(APP_REPORT_MICROPHONE_PERMISSION_GRANTED_CHANNEL)
   },
   openPermissionSettings(permission) {
     return ipcRenderer.invoke(APP_OPEN_PERMISSION_SETTINGS_CHANNEL, permission)

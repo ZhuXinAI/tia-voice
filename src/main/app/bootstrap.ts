@@ -43,6 +43,7 @@ import { createMainAppWindow } from '../windows/createMainAppWindow'
 import { createRecordingBarWindow } from '../windows/createRecordingBarWindow'
 import { createWindowManager } from '../windows/windowManager'
 import { initializeAutoUpdater } from '../updater/autoUpdater'
+import { createMicrophonePermissionState } from './microphonePermissionState'
 
 const SHOW_MAIN_WINDOW_SHORTCUT = 'CommandOrControl+Shift+Space'
 const ACCESSIBILITY_PERMISSION_RECHECK_INTERVAL_MS = 30_000
@@ -185,43 +186,6 @@ function getAccessibilityPermissionSnapshot(): PermissionSnapshot {
   }
 }
 
-function getMicrophonePermissionSnapshot(): PermissionSnapshot {
-  if (process.platform !== 'darwin') {
-    return {
-      kind: 'microphone',
-      granted: true,
-      status: 'granted'
-    }
-  }
-
-  try {
-    const status = systemPreferences.getMediaAccessStatus('microphone')
-    return {
-      kind: 'microphone',
-      granted: status === 'granted',
-      status
-    }
-  } catch (error) {
-    logDebug('microphone', 'Unable to read microphone permission state', { error })
-    return {
-      kind: 'microphone',
-      granted: false,
-      status: 'unknown'
-    }
-  }
-}
-
-function getAppPermissionSnapshot(): AppPermissionSnapshot {
-  const accessibility = getAccessibilityPermissionSnapshot()
-  const microphone = getMicrophonePermissionSnapshot()
-
-  return {
-    hasMissing: !accessibility.granted || !microphone.granted,
-    accessibility,
-    microphone
-  }
-}
-
 function buildMainAppState(input: {
   registeredHotkey: TriggerKey | null
   hotkeyReady: boolean
@@ -324,28 +288,6 @@ function checkAccessibilityPermission(prompt: boolean): boolean {
   }
 }
 
-async function checkMicrophonePermission(prompt: boolean): Promise<boolean> {
-  if (process.platform !== 'darwin') {
-    return true
-  }
-
-  try {
-    const status = systemPreferences.getMediaAccessStatus('microphone')
-    if (status === 'granted') {
-      return true
-    }
-
-    if (prompt && status === 'not-determined') {
-      return systemPreferences.askForMediaAccess('microphone')
-    }
-
-    return false
-  } catch (error) {
-    logDebug('microphone', 'Unable to read microphone permission state', { error, prompt })
-    return false
-  }
-}
-
 export async function bootstrapApplication(): Promise<void> {
   const env = loadAppEnv({ platform: process.platform, env: process.env })
 
@@ -369,6 +311,11 @@ export async function bootstrapApplication(): Promise<void> {
     createMainAppWindow(preloadPath, { showOnReady: false }),
     createRecordingBarWindow(preloadPath)
   ])
+  const microphonePermissionState = createMicrophonePermissionState({
+    platform: process.platform,
+    getStatus: () => systemPreferences.getMediaAccessStatus('microphone'),
+    askForAccess: () => systemPreferences.askForMediaAccess('microphone')
+  })
   const appIcon = resolveIconAsset()
   if (process.platform === 'darwin' && app.dock && !appIcon.icon.isEmpty()) {
     app.dock.setIcon(appIcon.icon)
@@ -393,6 +340,35 @@ export async function bootstrapApplication(): Promise<void> {
   let microphoneDialogVisible = false
   let microphoneCheckInFlight: Promise<void> | null = null
   let lastMicrophonePromptAt = 0
+
+  const getMicrophonePermissionSnapshot = (): PermissionSnapshot => {
+    try {
+      const snapshot = microphonePermissionState.getSnapshot()
+      return {
+        kind: 'microphone',
+        granted: snapshot.granted,
+        status: snapshot.status
+      }
+    } catch (error) {
+      logDebug('microphone', 'Unable to read microphone permission state', { error })
+      return {
+        kind: 'microphone',
+        granted: false,
+        status: 'unknown'
+      }
+    }
+  }
+
+  const getAppPermissionSnapshot = (): AppPermissionSnapshot => {
+    const accessibility = getAccessibilityPermissionSnapshot()
+    const microphone = getMicrophonePermissionSnapshot()
+
+    return {
+      hasMissing: !accessibility.granted || !microphone.granted,
+      accessibility,
+      microphone
+    }
+  }
 
   const bringMainWindowToFront = (): void => {
     bringWindowToFront(mainAppWindow)
@@ -714,6 +690,19 @@ export async function bootstrapApplication(): Promise<void> {
     )
   }
 
+  const checkMicrophonePermission = async (prompt: boolean): Promise<boolean> => {
+    try {
+      const granted = await microphonePermissionState.check(prompt)
+      if (granted) {
+        syncAppState()
+      }
+      return granted
+    } catch (error) {
+      logDebug('microphone', 'Unable to read microphone permission state', { error, prompt })
+      return false
+    }
+  }
+
   const contextProvider = (() => {
     try {
       return createSelectionHookContextProvider({
@@ -932,6 +921,11 @@ export async function bootstrapApplication(): Promise<void> {
     },
     checkAccessibilityPermission: (prompt) => checkAccessibilityPermission(prompt),
     checkMicrophonePermission: (prompt) => checkMicrophonePermission(prompt),
+    reportMicrophonePermissionGranted: () => {
+      microphonePermissionState.confirmGranted()
+      logDebug('microphone', 'Accepted renderer-confirmed microphone access grant')
+      syncAppState()
+    },
     openPermissionSettings: async (permission) => {
       if (permission === 'microphone') {
         const grantedAfterPrompt = await checkMicrophonePermission(true)

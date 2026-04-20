@@ -19,6 +19,7 @@ export function registerMainIpc(input: {
   completeOnboarding: () => void
   checkAccessibilityPermission: (prompt: boolean) => boolean
   checkMicrophonePermission: (prompt: boolean) => Promise<boolean>
+  reportMicrophonePermissionGranted: () => void
   openPermissionSettings: (permission: 'accessibility' | 'microphone') => Promise<void>
   resetOnboarding: () => void
   showOnboardingWindow: () => void
@@ -37,6 +38,7 @@ export function registerMainIpc(input: {
   ipcMain.removeHandler(IPC_CHANNELS.app.completeOnboarding)
   ipcMain.removeHandler(IPC_CHANNELS.app.checkAccessibilityPermission)
   ipcMain.removeHandler(IPC_CHANNELS.app.checkMicrophonePermission)
+  ipcMain.removeHandler(IPC_CHANNELS.app.reportMicrophonePermissionGranted)
   ipcMain.removeHandler(IPC_CHANNELS.app.openPermissionSettings)
   ipcMain.removeHandler(IPC_CHANNELS.app.resetOnboarding)
   ipcMain.removeHandler(IPC_CHANNELS.app.showOnboardingWindow)
@@ -108,6 +110,9 @@ export function registerMainIpc(input: {
   })
   ipcMain.handle(IPC_CHANNELS.app.checkMicrophonePermission, async (_event, prompt: unknown) => {
     return input.checkMicrophonePermission(Boolean(prompt))
+  })
+  ipcMain.handle(IPC_CHANNELS.app.reportMicrophonePermissionGranted, () => {
+    input.reportMicrophonePermissionGranted()
   })
   ipcMain.handle(IPC_CHANNELS.app.openPermissionSettings, async (_event, permission: unknown) => {
     if (permission !== 'accessibility' && permission !== 'microphone') {
