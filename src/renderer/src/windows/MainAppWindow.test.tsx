@@ -91,6 +91,7 @@ const {
   completeOnboardingMock,
   resetOnboardingMock,
   saveDashscopeApiKeyMock,
+  checkMicrophonePermissionMock,
   openPermissionSettingsMock,
   showOnboardingWindowMock,
   setThemeModeMock
@@ -102,6 +103,7 @@ const {
   completeOnboardingMock: vi.fn(),
   resetOnboardingMock: vi.fn(),
   saveDashscopeApiKeyMock: vi.fn(),
+  checkMicrophonePermissionMock: vi.fn(),
   openPermissionSettingsMock: vi.fn(),
   showOnboardingWindowMock: vi.fn(),
   setThemeModeMock: vi.fn()
@@ -114,6 +116,7 @@ vi.mock('../lib/ipc', () => ({
   resetOnboarding: resetOnboardingMock,
   retryHistoryEntry: retryHistoryEntryMock,
   saveDashscopeApiKey: saveDashscopeApiKeyMock,
+  checkMicrophonePermission: checkMicrophonePermissionMock,
   openPermissionSettings: openPermissionSettingsMock,
   showOnboardingWindow: showOnboardingWindowMock,
   setThemeMode: setThemeModeMock,
@@ -144,6 +147,7 @@ describe('MainAppWindow', () => {
     completeOnboardingMock.mockReset()
     resetOnboardingMock.mockReset()
     saveDashscopeApiKeyMock.mockReset()
+    checkMicrophonePermissionMock.mockReset()
     openPermissionSettingsMock.mockReset()
     showOnboardingWindowMock.mockReset()
     setThemeModeMock.mockReset()
@@ -157,6 +161,7 @@ describe('MainAppWindow', () => {
       configured: true,
       keyLabel: 'Saved locally ••••1234'
     })
+    checkMicrophonePermissionMock.mockResolvedValue(false)
     openPermissionSettingsMock.mockResolvedValue(undefined)
     showOnboardingWindowMock.mockResolvedValue(undefined)
     setThemeModeMock.mockResolvedValue(undefined)

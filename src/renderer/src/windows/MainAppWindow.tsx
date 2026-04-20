@@ -13,6 +13,7 @@ import {
   setThemeMode,
   subscribeToAppState
 } from '../lib/ipc'
+import { requestMicrophonePermission } from '../lib/microphoneAccess'
 import type { ThemeMode } from '../../../preload/index'
 
 import { defaultMainAppState, starterDictionary } from './main-app/defaults'
@@ -252,6 +253,12 @@ export default function MainAppWindow(): React.JSX.Element {
   const handleOpenPermissionSettings = async (
     permission: 'accessibility' | 'microphone'
   ): Promise<void> => {
+    if (permission === 'microphone') {
+      await requestMicrophonePermission()
+      await syncMainAppState()
+      return
+    }
+
     await openPermissionSettings(permission)
   }
 

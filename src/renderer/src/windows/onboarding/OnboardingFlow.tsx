@@ -12,6 +12,7 @@ import {
   startDictation,
   stopDictation
 } from '@renderer/lib/ipc'
+import { requestMicrophonePermission } from '@renderer/lib/microphoneAccess'
 
 import type { MainAppState } from '../main-app/types'
 
@@ -265,6 +266,24 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
     }
   }
 
+  const handleRequestMicrophonePermission = async (): Promise<void> => {
+    setPermissionError(null)
+
+    try {
+      const granted = await requestMicrophonePermission()
+      if (!granted) {
+        return
+      }
+
+      setMicrophoneGranted(true)
+      setStep(4)
+    } catch {
+      setPermissionError(
+        'We could not trigger the microphone prompt. Open System Settings and try again.'
+      )
+    }
+  }
+
   const outerClassName =
     mode === 'dialog' ? 'p-0' : 'flex min-h-svh items-center justify-center p-6'
   const sectionClassName =
@@ -388,7 +407,7 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <Button onClick={() => void openPermissionSettings('microphone')} type="button">
+              <Button onClick={() => void handleRequestMicrophonePermission()} type="button">
                 Request Microphone Permission
               </Button>
               <Button
