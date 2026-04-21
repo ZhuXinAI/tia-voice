@@ -15,6 +15,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem
 } from '@renderer/components/ui/sidebar'
+import { useI18n } from '@renderer/i18n'
 
 import type { DashscopeSetupState, MainAppState, SettingsSection } from './types'
 import { TrayIcon } from './TrayIcon'
@@ -43,6 +44,7 @@ export function MainSidebar(props: MainSidebarProps): React.JSX.Element {
     onOpenSettings,
     onRestartToUpdate
   } = props
+  const { t } = useI18n()
   const location = useLocation()
   const [restartPending, setRestartPending] = useState(false)
   const isHomeRoute = location.pathname === '/'
@@ -78,7 +80,9 @@ export function MainSidebar(props: MainSidebarProps): React.JSX.Element {
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold">TIA Voice</p>
-                <p className="truncate text-xs text-muted-foreground">Desktop assistant</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {t('sidebar.desktopAssistant')}
+                </p>
               </div>
 
               {hasDownloadedUpdate ? (
@@ -90,7 +94,7 @@ export function MainSidebar(props: MainSidebarProps): React.JSX.Element {
                   onClick={() => void handleRestartToUpdate()}
                 >
                   <Download className="h-3 w-3" />
-                  {restartPending ? 'Restarting…' : 'Update'}
+                  {restartPending ? t('sidebar.restarting') : t('sidebar.update')}
                 </Button>
               ) : null}
             </div>
@@ -100,37 +104,41 @@ export function MainSidebar(props: MainSidebarProps): React.JSX.Element {
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+          <SidebarGroupLabel>{t('sidebar.navigation')}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={isHomeRoute} tooltip="Home">
+                <SidebarMenuButton asChild isActive={isHomeRoute} tooltip={t('nav.home')}>
                   <Link to="/">
                     <Home />
-                    <span>Home</span>
+                    <span>{t('nav.home')}</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={isDictionaryRoute} tooltip="Dictionary">
+                <SidebarMenuButton
+                  asChild
+                  isActive={isDictionaryRoute}
+                  tooltip={t('nav.dictionary')}
+                >
                   <Link to="/dictionary">
                     <BookText />
-                    <span>Dictionary</span>
+                    <span>{t('nav.dictionary')}</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={isPresetsRoute} tooltip="Presets">
+                <SidebarMenuButton asChild isActive={isPresetsRoute} tooltip={t('nav.presets')}>
                   <Link to="/presets">
                     <Sparkles />
-                    <span>Presets</span>
+                    <span>{t('nav.presets')}</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton onClick={() => onOpenSettings()} tooltip="Settings">
+                <SidebarMenuButton onClick={() => onOpenSettings()} tooltip={t('nav.settings')}>
                   <Settings2 />
-                  <span>Settings</span>
+                  <span>{t('nav.settings')}</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
@@ -147,7 +155,7 @@ export function MainSidebar(props: MainSidebarProps): React.JSX.Element {
             type="button"
           >
             <AlertTriangle className="h-4 w-4" />
-            <span>Permissions need attention</span>
+            <span>{t('sidebar.permissionsAttention')}</span>
           </Button>
         ) : null}
 
@@ -155,30 +163,30 @@ export function MainSidebar(props: MainSidebarProps): React.JSX.Element {
           {permissions.hasMissing ? (
             <>
               <p className="text-xs uppercase tracking-[0.08em] text-amber-700 dark:text-amber-200">
-                Warning
+                {t('sidebar.warning')}
               </p>
-              <p className="mt-2 text-sm font-medium">Voice typing is missing permission access</p>
-              <p className="text-xs text-muted-foreground">
-                Open Permissions in Settings and enable Accessibility plus Microphone in macOS.
-              </p>
+              <p className="mt-2 text-sm font-medium">{t('sidebar.permissionsMissingTitle')}</p>
+              <p className="text-xs text-muted-foreground">{t('sidebar.permissionsMissingBody')}</p>
               <Button
                 className="mt-3 w-full"
                 variant="outline"
                 onClick={() => onOpenSettings('permissions')}
                 type="button"
               >
-                Fix permissions
+                {t('sidebar.fixPermissions')}
               </Button>
             </>
           ) : (
             <>
-              <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Provider</p>
+              <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">
+                {t('sidebar.provider')}
+              </p>
               <p className="mt-2 text-sm font-medium">{activeProviderLabel}</p>
               <p className="text-xs text-muted-foreground">
-                {activeProvider.keyLabel ?? 'No API key saved yet'}
+                {activeProvider.keyLabel ?? t('sidebar.noApiKey')}
               </p>
               <div className="mt-3 flex items-center justify-between rounded-lg border border-sidebar-border/70 bg-background/60 px-3 py-2 text-xs">
-                <span className="text-muted-foreground">PostProcess preset</span>
+                <span className="text-muted-foreground">{t('sidebar.postProcessPreset')}</span>
                 <span className="font-medium text-foreground">{activePresetLabel}</span>
               </div>
               <Button
@@ -187,7 +195,7 @@ export function MainSidebar(props: MainSidebarProps): React.JSX.Element {
                 onClick={() => onOpenSettings('providers')}
                 type="button"
               >
-                {activeProvider.configured ? 'Manage key' : 'Add key'}
+                {activeProvider.configured ? t('sidebar.manageKey') : t('sidebar.addKey')}
               </Button>
             </>
           )}

@@ -11,6 +11,7 @@ describe('createSettingsStore', () => {
     const store = createSettingsStore('MetaRight', root)
     expect(store.get().providers.asr).toBe('qwen3-asr-flash')
     expect(store.get().themeMode).toBe('system')
+    expect(store.get().languagePreference).toBe('system')
     expect(store.getPostProcessPreset()).toBe('formal')
     expect(store.getPostProcessPresets()).toHaveLength(2)
     expect(store.hasDashscopeApiKey()).toBe(false)
@@ -46,12 +47,13 @@ describe('createSettingsStore', () => {
     rmSync(root, { recursive: true, force: true })
   })
 
-  it('persists provider, microphone, preset, and OpenAI key settings', () => {
+  it('persists provider, microphone, preset, language, and OpenAI key settings', () => {
     const root = mkdtempSync(join(tmpdir(), 'tia-voice-settings-provider-'))
     const firstStore = createSettingsStore('MetaRight', root)
 
     firstStore.setProvider('openai')
     firstStore.setPostProcessPreset('casual')
+    firstStore.setLanguagePreference('zh-TW')
     firstStore.setOpenAiApiKey('openai-test-key')
     firstStore.setHotkey('AltRight')
     firstStore.setMicrophone({
@@ -67,6 +69,7 @@ describe('createSettingsStore', () => {
       llm: 'gpt-5-mini'
     })
     expect(secondStore.getPostProcessPreset()).toBe('casual')
+    expect(secondStore.get().languagePreference).toBe('zh-TW')
     expect(secondStore.get().hotkey).toBe('AltRight')
     expect(secondStore.getMicrophone()).toEqual({
       deviceId: 'usb-mic-1',

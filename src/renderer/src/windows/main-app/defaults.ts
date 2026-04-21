@@ -29,6 +29,10 @@ export const defaultMainAppState: MainAppState = {
     completed: false,
     visible: true
   },
+  language: {
+    preference: 'system',
+    resolved: 'en'
+  },
   themeMode: 'system',
   postProcessPreset: 'formal',
   postProcessPresets: [

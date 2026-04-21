@@ -1,4 +1,5 @@
 import { Button } from '@renderer/components/ui/button'
+import { useI18n } from '@renderer/i18n'
 import { cn } from '@renderer/lib/utils'
 
 import type { MainAppHistoryEntry } from './types'
@@ -13,16 +14,14 @@ type HistoryEntryListProps = {
 }
 
 export function HistoryEntryList(props: HistoryEntryListProps): React.JSX.Element {
-  const {
-    history,
-    retrying,
-    emptyMessage = 'No voice history yet. Your next cleaned transcription will appear here.',
-    onOpenDetails,
-    onRetry
-  } = props
+  const { history, retrying, emptyMessage, onOpenDetails, onRetry } = props
+  const { t } = useI18n()
+  const resolvedEmptyMessage = emptyMessage ?? t('history.empty')
+  const statusLabel = (status: MainAppHistoryEntry['status']): string =>
+    t(`history.status.${status}`)
 
   if (!history.length) {
-    return <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+    return <p className="text-sm text-muted-foreground">{resolvedEmptyMessage}</p>
   }
 
   return (
@@ -38,7 +37,7 @@ export function HistoryEntryList(props: HistoryEntryListProps): React.JSX.Elemen
               onOpenDetails(entry)
             }
           }}
-          aria-label={`Open details for ${entry.title}`}
+          aria-label={t('history.openDetails', { title: entry.title })}
           role="button"
           tabIndex={0}
         >
@@ -53,7 +52,7 @@ export function HistoryEntryList(props: HistoryEntryListProps): React.JSX.Elemen
                 entry.status === 'failed' && 'border-rose-500/30 bg-rose-500/15 text-rose-300'
               )}
             >
-              {entry.status}
+              {statusLabel(entry.status)}
             </span>
             <span className="ml-auto text-xs text-muted-foreground">
               {toHumanTime(entry.createdAt)}
@@ -77,7 +76,7 @@ export function HistoryEntryList(props: HistoryEntryListProps): React.JSX.Elemen
               }}
               type="button"
             >
-              {retrying[entry.id] ? 'Retrying…' : 'Retry'}
+              {retrying[entry.id] ? t('history.retrying') : t('history.retry')}
             </Button>
           ) : null}
         </div>

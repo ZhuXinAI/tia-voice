@@ -32,6 +32,10 @@ const baseState = {
     completed: true,
     visible: false
   },
+  language: {
+    preference: 'system' as const,
+    resolved: 'en' as const
+  },
   themeMode: 'system' as const,
   postProcessPreset: 'formal' as const,
   postProcessPresets: [
@@ -149,6 +153,7 @@ const {
   showOnboardingWindowMock,
   checkForUpdatesMock,
   restartToUpdateMock,
+  setLanguageMock,
   setThemeModeMock,
   setPostProcessPresetMock,
   savePostProcessPresetMock,
@@ -172,6 +177,7 @@ const {
   showOnboardingWindowMock: vi.fn(),
   checkForUpdatesMock: vi.fn(),
   restartToUpdateMock: vi.fn(),
+  setLanguageMock: vi.fn(),
   setThemeModeMock: vi.fn(),
   setPostProcessPresetMock: vi.fn(),
   savePostProcessPresetMock: vi.fn(),
@@ -196,6 +202,7 @@ vi.mock('../lib/ipc', () => ({
   showOnboardingWindow: showOnboardingWindowMock,
   checkForUpdates: checkForUpdatesMock,
   restartToUpdate: restartToUpdateMock,
+  setLanguage: setLanguageMock,
   setThemeMode: setThemeModeMock,
   setPostProcessPreset: setPostProcessPresetMock,
   savePostProcessPreset: savePostProcessPresetMock,
@@ -240,6 +247,7 @@ describe('MainAppWindow', () => {
     showOnboardingWindowMock.mockReset()
     checkForUpdatesMock.mockReset()
     restartToUpdateMock.mockReset()
+    setLanguageMock.mockReset()
     setThemeModeMock.mockReset()
     setPostProcessPresetMock.mockReset()
     savePostProcessPresetMock.mockReset()
@@ -283,6 +291,7 @@ describe('MainAppWindow', () => {
     showOnboardingWindowMock.mockResolvedValue(undefined)
     checkForUpdatesMock.mockResolvedValue(baseState.autoUpdate)
     restartToUpdateMock.mockResolvedValue(undefined)
+    setLanguageMock.mockResolvedValue(undefined)
     setThemeModeMock.mockResolvedValue(undefined)
     setPostProcessPresetMock.mockResolvedValue(undefined)
     savePostProcessPresetMock.mockResolvedValue({
@@ -369,6 +378,26 @@ describe('MainAppWindow', () => {
 
     await waitFor(() => {
       expect(setProviderMock).toHaveBeenCalledWith('openai')
+    })
+  })
+
+  it('changes the app language from the language settings tab', async () => {
+    getMainAppStateMock.mockResolvedValueOnce(baseState).mockResolvedValueOnce({
+      ...baseState,
+      language: {
+        preference: 'zh-CN',
+        resolved: 'zh-CN'
+      }
+    })
+
+    render(<MainAppWindow />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /settings/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /language/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /simplified chinese/i }))
+
+    await waitFor(() => {
+      expect(setLanguageMock).toHaveBeenCalledWith('zh-CN')
     })
   })
 

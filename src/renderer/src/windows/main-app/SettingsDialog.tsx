@@ -14,10 +14,13 @@ import { Input } from '@renderer/components/ui/input'
 import { Separator } from '@renderer/components/ui/separator'
 import { Switch } from '@renderer/components/ui/switch'
 import { cn } from '@renderer/lib/utils'
+import { useI18n } from '@renderer/i18n'
 
 import { AboutSettingsSection } from './AboutSettingsSection'
+import { LanguageSettingsSection } from './LanguageSettingsSection'
 import type { DashscopeSetupState, MainAppState, SettingsSection } from './types'
 import type { ProviderKind, ThemeMode, TriggerKey } from '../../../../preload/index'
+import type { AppLanguage, LanguagePreference } from '../../../../shared/i18n/config'
 
 type SettingsDialogProps = {
   open: boolean
@@ -39,8 +42,11 @@ type SettingsDialogProps = {
   permissions: MainAppState['permissions']
   appInfo: MainAppState['appInfo']
   autoUpdate: MainAppState['autoUpdate']
+  languagePreference: LanguagePreference
+  resolvedLanguage: AppLanguage
   themeMode: ThemeMode
   onThemeModeChange: (themeMode: ThemeMode) => Promise<void>
+  onLanguageChange: (language: LanguagePreference) => Promise<void>
   onHotkeyChange: (hotkey: TriggerKey) => Promise<void>
   onMicrophoneChange: (input: { deviceId: string | null; label: string | null }) => Promise<void>
   onProviderChange: (provider: ProviderKind) => Promise<void>
@@ -53,27 +59,42 @@ type SettingsDialogProps = {
   onResetOnboarding: () => Promise<void>
 }
 
-const shortcutOptions: Array<{
+function getShortcutOptions(platform: NodeJS.Platform): Array<{
   id: TriggerKey
   label: string
   detail: string
-}> = [
-  {
-    id: 'MetaRight',
-    label: 'Right Command',
-    detail: 'Default on macOS for push-to-talk.'
-  },
-  {
-    id: 'AltRight',
-    label: 'Right Option',
-    detail: 'Alternative shortcut if Command conflicts with your setup.'
+}> {
+  if (platform === 'win32') {
+    return [
+      {
+        id: 'ControlRight',
+        label: 'Right Control',
+        detail: 'Recommended on Windows for push-to-talk.'
+      },
+      {
+        id: 'AltRight',
+        label: 'Right Alt',
+        detail: 'Available if Right Control conflicts with your setup.'
+      }
+    ]
   }
-]
-const languageOptions = [
-  'English · Chinese - Simplified (简体中文)',
-  'English only',
-  'Chinese - Simplified only'
-]
+
+  return [
+    {
+      id: 'MetaRight',
+      label: 'Right Command',
+      detail: 'Default on macOS for push-to-talk.'
+    },
+    {
+      id: 'AltRight',
+      label: platform === 'darwin' ? 'Right Option' : 'Right Alt',
+      detail:
+        platform === 'darwin'
+          ? 'Alternative shortcut if Command conflicts with your setup.'
+          : 'Alternative shortcut if your default hotkey conflicts with your setup.'
+    }
+  ]
+}
 const providerOptions: Array<{
   id: ProviderKind
   label: string
@@ -114,32 +135,33 @@ const themeOptions: Array<{
 
 const settingsMenu: Array<{
   id: SettingsSection
-  label: string
   icon: typeof Settings2
 }> = [
   {
     id: 'general',
-    label: 'General',
     icon: Settings2
   },
   {
     id: 'providers',
-    label: 'Providers',
     icon: Mic2
   },
   {
     id: 'permissions',
-    label: 'Permissions',
     icon: ShieldAlert
   },
   {
+    id: 'language',
+    icon: Languages
+  },
+  {
     id: 'about',
-    label: 'About',
     icon: Info
   }
 ]
 
 export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
+  const platform = window.electron?.process.platform ?? 'darwin'
+  const shortcutOptions = getShortcutOptions(platform)
   const {
     open,
     onOpenChange,
@@ -154,8 +176,11 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
     permissions,
     appInfo,
     autoUpdate,
+    languagePreference,
+    resolvedLanguage,
     themeMode,
     onThemeModeChange,
+    onLanguageChange,
     onHotkeyChange,
     onMicrophoneChange,
     onProviderChange,
@@ -167,9 +192,10 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
     onOpenOnboarding,
     onResetOnboarding
   } = props
+  const { t } = useI18n()
 
-  const [languageIndex, setLanguageIndex] = useState(0)
   const [themePending, setThemePending] = useState(false)
+  const [languagePending, setLanguagePending] = useState<LanguagePreference | null>(null)
   const [hotkeyPending, setHotkeyPending] = useState<TriggerKey | null>(null)
   const [microphonePending, setMicrophonePending] = useState<string | null>(null)
   const [providerPending, setProviderPending] = useState<ProviderKind | null>(null)
@@ -188,7 +214,7 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
     themeOptions.find((option) => option.id === themeMode)?.detail ?? themeOptions[0].detail
   const selectedShortcut =
     shortcutOptions.find((option) => option.id === registeredHotkey) ?? shortcutOptions[0]
-  const selectedMicrophoneLabel = selectedMicrophone.label ?? 'System default microphone'
+  const selectedMicrophoneLabel = selectedMicrophone.label ?? t('settings.systemDefaultMic')
 
   const handleThemeModeChange = async (nextMode: ThemeMode): Promise<void> => {
     if (nextMode === themeMode || themePending) {
@@ -201,6 +227,19 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
       await onThemeModeChange(nextMode)
     } finally {
       setThemePending(false)
+    }
+  }
+
+  const handleLanguageChange = async (language: LanguagePreference): Promise<void> => {
+    if (languagePending || languagePreference === language) {
+      return
+    }
+
+    setLanguagePending(language)
+    try {
+      await onLanguageChange(language)
+    } finally {
+      setLanguagePending(null)
     }
   }
 
@@ -328,14 +367,14 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[82vh] w-[min(960px,92vw)] max-w-none overflow-hidden border border-border/70 bg-background/95 p-0 text-foreground shadow-2xl backdrop-blur-xl">
         <DialogHeader className="sr-only">
-          <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>Configure general and system preferences.</DialogDescription>
+          <DialogTitle>{t('settings.title')}</DialogTitle>
+          <DialogDescription>{t('settings.description')}</DialogDescription>
         </DialogHeader>
 
         <div className="grid h-[78vh] grid-cols-[220px_1fr] overflow-hidden max-md:grid-cols-1">
           <aside className="border-r border-border/60 bg-muted/30 p-4 max-md:border-b max-md:border-r-0">
             <p className="px-2 pb-4 text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-              Settings
+              {t('settings.title')}
             </p>
             <div className="space-y-1">
               {settingsMenu.map((item) => (
@@ -347,7 +386,7 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
                   onClick={() => onSectionChange(item.id)}
                 >
                   <item.icon className="h-4 w-4" />
-                  {item.label}
+                  {t(`settings.${item.id}`)}
                 </Button>
               ))}
             </div>
@@ -357,10 +396,8 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
             {section === 'general' ? (
               <div className="space-y-6">
                 <div>
-                  <h2 className="text-3xl font-semibold">General</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Shortcut, input device, and language behavior for dictation.
-                  </p>
+                  <h2 className="text-3xl font-semibold">{t('settings.generalTitle')}</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">{t('settings.generalBody')}</p>
                 </div>
 
                 <Card className="border-border/70 bg-card/70">
@@ -368,7 +405,7 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
                     <div className="flex items-center gap-4 p-5">
                       <SunMoon className="h-5 w-5 text-muted-foreground" />
                       <div className="flex-1">
-                        <p className="font-medium">Theme</p>
+                        <p className="font-medium">{t('settings.theme')}</p>
                         <p className="text-sm text-muted-foreground">{activeThemeDetail}</p>
                       </div>
                       <div className="inline-flex items-center rounded-lg border border-border/70 bg-muted/50 p-1">
@@ -398,7 +435,7 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
                     <div className="items-start gap-4 p-5 md:flex">
                       <Keyboard className="h-5 w-5 text-muted-foreground" />
                       <div className="mt-4 flex-1 space-y-3 md:mt-0">
-                        <p className="font-medium">Shortcuts</p>
+                        <p className="font-medium">{t('settings.shortcuts')}</p>
                         <p className="text-sm text-muted-foreground">{selectedShortcut.detail}</p>
                         <div className="flex flex-wrap gap-2">
                           {shortcutOptions.map((option) => (
@@ -409,7 +446,7 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
                               disabled={hotkeyPending !== null}
                               onClick={() => void handleHotkeyChange(option.id)}
                             >
-                              {hotkeyPending === option.id ? 'Saving…' : option.label}
+                              {hotkeyPending === option.id ? t('settings.saving') : option.label}
                             </Button>
                           ))}
                         </div>
@@ -421,7 +458,7 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
                     <div className="items-start gap-4 p-5 md:flex">
                       <Mic2 className="h-5 w-5 text-muted-foreground" />
                       <div className="mt-4 flex-1 space-y-3 md:mt-0">
-                        <p className="font-medium">Microphone</p>
+                        <p className="font-medium">{t('settings.microphone')}</p>
                         <p className="text-sm text-muted-foreground">{selectedMicrophoneLabel}</p>
                         <div className="flex flex-wrap gap-2">
                           {microphoneOptions.map((option) => {
@@ -438,33 +475,14 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
                                   void handleMicrophoneChange(option.deviceId, option.label)
                                 }
                               >
-                                {microphonePending === optionKey ? 'Saving…' : option.label}
+                                {microphonePending === optionKey
+                                  ? t('settings.saving')
+                                  : option.label}
                               </Button>
                             )
                           })}
                         </div>
                       </div>
-                    </div>
-
-                    <Separator />
-
-                    <div className="flex items-center gap-4 p-5">
-                      <Languages className="h-5 w-5 text-muted-foreground" />
-                      <div className="flex-1">
-                        <p className="font-medium">Languages</p>
-                        <p className="text-sm text-muted-foreground">
-                          {languageOptions[languageIndex]}
-                        </p>
-                      </div>
-                      <Button
-                        variant="outline"
-                        type="button"
-                        onClick={() =>
-                          setLanguageIndex((index) => (index + 1) % languageOptions.length)
-                        }
-                      >
-                        Change
-                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -747,6 +765,15 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
                 autoUpdate={autoUpdate}
                 onCheckForUpdates={onCheckForUpdates}
                 onRestartToUpdate={onRestartToUpdate}
+              />
+            ) : null}
+
+            {section === 'language' ? (
+              <LanguageSettingsSection
+                languagePreference={languagePreference}
+                resolvedLanguage={resolvedLanguage}
+                pending={languagePending !== null}
+                onLanguageChange={handleLanguageChange}
               />
             ) : null}
           </section>

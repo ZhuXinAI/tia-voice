@@ -1,4 +1,5 @@
 import type {
+  AppLanguage,
   RecordingArtifact,
   RecordingCommand,
   TiaApi,
@@ -32,6 +33,10 @@ const noopMainAppState = {
   onboarding: {
     completed: false,
     visible: true
+  },
+  language: {
+    preference: 'system' as const,
+    resolved: 'en' as AppLanguage
   },
   themeMode: 'system' as const,
   postProcessPreset: 'formal' as const,
@@ -106,6 +111,7 @@ const noopApi: TiaApi = {
   startDictation: async () => undefined,
   stopDictation: async () => undefined,
   setThemeMode: async () => undefined,
+  setLanguage: async () => undefined,
   setPostProcessPreset: async () => undefined,
   savePostProcessPreset: async (input) => ({ ...input, builtIn: false }),
   resetPostProcessPreset: async () => ({
@@ -208,6 +214,12 @@ export function setThemeMode(
   themeMode: Parameters<TiaApi['setThemeMode']>[0]
 ): ReturnType<TiaApi['setThemeMode']> {
   return getApi().setThemeMode(themeMode)
+}
+
+export function setLanguage(
+  language: Parameters<TiaApi['setLanguage']>[0]
+): ReturnType<TiaApi['setLanguage']> {
+  return getApi().setLanguage(language)
 }
 
 export function setPostProcessPreset(

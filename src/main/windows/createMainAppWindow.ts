@@ -23,6 +23,11 @@ export async function createMainAppWindow(
     }
   })
 
+  if (process.platform === 'win32') {
+    window.removeMenu()
+    window.setMenuBarVisibility(false)
+  }
+
   window.on('ready-to-show', () => {
     if (showOnReady) {
       window.show()

@@ -6,6 +6,7 @@ import {
   CardHeader,
   CardTitle
 } from '@renderer/components/ui/card'
+import { useI18n } from '@renderer/i18n'
 
 import { HistoryEntryList } from './HistoryEntryList'
 import type { MainAppHistoryEntry } from './types'
@@ -32,29 +33,30 @@ export function HomeRoute(props: HomeRouteProps): React.JSX.Element {
     onShowAll,
     onRetry
   } = props
+  const { t, formatNumber } = useI18n()
 
   return (
     <>
       <section className="grid gap-4 md:grid-cols-3">
         <Card className="border-border/70 bg-card/70">
           <CardHeader className="pb-3">
-            <CardDescription>Total words spoken</CardDescription>
-            <CardTitle className="text-3xl">{wordsSpoken.toLocaleString()}</CardTitle>
+            <CardDescription>{t('home.totalWordsSpoken')}</CardDescription>
+            <CardTitle className="text-3xl">{formatNumber(wordsSpoken)}</CardTitle>
           </CardHeader>
         </Card>
 
         <Card className="border-border/70 bg-card/70">
           <CardHeader className="pb-3">
-            <CardDescription>Average WPM</CardDescription>
+            <CardDescription>{t('home.averageWpm')}</CardDescription>
             <CardTitle className="text-3xl">
-              {averageWpm === null ? '—' : averageWpm.toLocaleString()}
+              {averageWpm === null ? '—' : formatNumber(averageWpm)}
             </CardTitle>
           </CardHeader>
         </Card>
 
         <Card className="border-border/70 bg-card/70">
           <CardHeader className="pb-3">
-            <CardDescription>Transcriptions</CardDescription>
+            <CardDescription>{t('home.transcriptions')}</CardDescription>
             <CardTitle className="text-3xl">{totalCount}</CardTitle>
           </CardHeader>
         </Card>
@@ -62,10 +64,12 @@ export function HomeRoute(props: HomeRouteProps): React.JSX.Element {
 
       <Card className="border-border/70 bg-card/70">
         <CardHeader>
-          <CardTitle>Transcription history</CardTitle>
+          <CardTitle>{t('home.transcriptionHistory')}</CardTitle>
           <CardDescription>
-            Showing the {history.length} most recent of {totalCount} transcriptions with retry
-            actions for failed entries.
+            {t('home.transcriptionHistoryDetail', {
+              historyCount: history.length,
+              totalCount
+            })}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -79,7 +83,7 @@ export function HomeRoute(props: HomeRouteProps): React.JSX.Element {
           {totalCount > history.length ? (
             <div className="flex justify-center pt-2">
               <Button type="button" variant="outline" onClick={onShowAll}>
-                Show All
+                {t('common.showAll')}
               </Button>
             </div>
           ) : null}

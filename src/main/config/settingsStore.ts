@@ -3,7 +3,9 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from '
 import { readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
 import {
+  LANGUAGE_PREFERENCES,
   THEME_MODES,
+  type LanguagePreference,
   type PostProcessPresetId,
   type ThemeMode
 } from '../ipc/channels'
@@ -46,6 +48,7 @@ export type AppSettings = {
   hotkey: TriggerKey
   provider: ProviderKind
   microphone: MicrophonePreference
+  languagePreference: LanguagePreference
   themeMode: ThemeMode
   postProcessPreset: PostProcessPresetId
   postProcessPresets: PostProcessPresetRecord[]
@@ -71,6 +74,7 @@ export type SettingsStore = {
     items: HistoryEntry[]
     totalCount: number
   }
+  setLanguagePreference(languagePreference: LanguagePreference): void
   setThemeMode(themeMode: ThemeMode): void
   getPostProcessPreset(): PostProcessPresetId
   getPostProcessPresets(): PostProcessPresetRecord[]
@@ -82,10 +86,7 @@ export type SettingsStore = {
     systemPrompt: string
   }): PostProcessPresetRecord
   resetPostProcessPreset(presetId: string): PostProcessPresetRecord
-  createPostProcessPreset(input: {
-    name: string
-    systemPrompt: string
-  }): PostProcessPresetRecord
+  createPostProcessPreset(input: { name: string; systemPrompt: string }): PostProcessPresetRecord
   hasDashscopeApiKey(): boolean
   getDashscopeApiKey(): string | null
   getDashscopeKeyLabel(): string | null
@@ -120,6 +121,7 @@ type PersistedSettings = {
   hotkey: TriggerKey
   provider?: ProviderKind
   microphone?: Partial<MicrophonePreference>
+  languagePreference?: LanguagePreference
   themeMode: ThemeMode
   postProcessPreset?: PostProcessPresetId
   postProcessPresets?: PostProcessPresetRecord[]
@@ -210,6 +212,16 @@ function normalizeThemeMode(value: unknown): ThemeMode {
   }
 
   return THEME_MODES.includes(value as ThemeMode) ? (value as ThemeMode) : 'system'
+}
+
+function normalizeLanguagePreference(value: unknown): LanguagePreference {
+  if (typeof value !== 'string') {
+    return 'system'
+  }
+
+  return LANGUAGE_PREFERENCES.includes(value as LanguagePreference)
+    ? (value as LanguagePreference)
+    : 'system'
 }
 
 function normalizeString(value: unknown): string | null {
@@ -316,6 +328,7 @@ export function createSettingsStore(
       deviceId: null,
       label: null
     },
+    languagePreference: 'system',
     themeMode: 'system',
     postProcessPreset: DEFAULT_POST_PROCESS_PRESET_ID,
     postProcessPresets: DEFAULT_POST_PROCESS_PRESETS.map((preset) => ({ ...preset })),
@@ -351,11 +364,14 @@ export function createSettingsStore(
 
       return {
         hotkey:
-          parsed.hotkey === 'AltRight' || parsed.hotkey === 'MetaRight'
+          parsed.hotkey === 'AltRight' ||
+          parsed.hotkey === 'MetaRight' ||
+          parsed.hotkey === 'ControlRight'
             ? parsed.hotkey
             : defaultHotkey,
         provider,
         microphone: normalizeMicrophonePreference(parsed.microphone),
+        languagePreference: normalizeLanguagePreference(parsed.languagePreference),
         themeMode: normalizeThemeMode(parsed.themeMode),
         postProcessPreset: selectedPostProcessPreset.id,
         postProcessPresets,
@@ -382,6 +398,7 @@ export function createSettingsStore(
         deviceId: state.microphone.deviceId,
         label: state.microphone.label
       },
+      languagePreference: state.languagePreference,
       themeMode: state.themeMode,
       postProcessPreset: state.postProcessPreset,
       postProcessPresets: state.postProcessPresets.map((preset) => ({ ...preset })),
@@ -403,6 +420,7 @@ export function createSettingsStore(
         ...state,
         providers: getProviderModels(state.provider),
         microphone: { ...state.microphone },
+        languagePreference: state.languagePreference,
         postProcessPreset: state.postProcessPreset,
         postProcessPresets: state.postProcessPresets.map((preset) => ({ ...preset })),
         dashscopeApiKey: state.dashscopeApiKey,
@@ -452,6 +470,15 @@ export function createSettingsStore(
       }
 
       state.microphone = nextPreference
+      persistState()
+    },
+    setLanguagePreference(languagePreference: LanguagePreference): void {
+      const normalized = normalizeLanguagePreference(languagePreference)
+      if (state.languagePreference === normalized) {
+        return
+      }
+
+      state.languagePreference = normalized
       persistState()
     },
     appendHistory(entry: HistoryEntry): void {

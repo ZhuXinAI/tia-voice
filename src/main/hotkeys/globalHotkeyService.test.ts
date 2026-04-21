@@ -13,15 +13,15 @@ describe('createGlobalHotkeyService', () => {
     }
 
     const service = createGlobalHotkeyService({
-      triggerKey: 'AltRight',
+      triggerKey: 'ControlRight',
       hook,
       onStart,
       onStop
     })
 
-    await service.handleKeyDown({ keycode: triggerKeyCodes.AltRight })
-    await service.handleKeyDown({ keycode: triggerKeyCodes.AltRight })
-    await service.handleKeyUp({ keycode: triggerKeyCodes.AltRight })
+    await service.handleKeyDown({ keycode: triggerKeyCodes.ControlRight })
+    await service.handleKeyDown({ keycode: triggerKeyCodes.ControlRight })
+    await service.handleKeyUp({ keycode: triggerKeyCodes.ControlRight })
 
     expect(onStart).toHaveBeenCalledTimes(1)
     expect(onStop).toHaveBeenCalledTimes(1)

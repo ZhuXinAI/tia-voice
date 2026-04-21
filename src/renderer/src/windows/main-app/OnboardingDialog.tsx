@@ -5,6 +5,8 @@ import {
   DialogHeader,
   DialogTitle
 } from '@renderer/components/ui/dialog'
+import { useI18n } from '@renderer/i18n'
+import type { TriggerKey } from '../../../../preload/index'
 
 import { OnboardingFlow } from '../onboarding/OnboardingFlow'
 
@@ -14,7 +16,7 @@ type OnboardingDialogProps = {
   dashscopeKeyLabel: string | null
   hotkeyHint: string
   permissions: import('./types').MainAppState['permissions']
-  registeredHotkey: 'MetaRight' | 'AltRight' | null
+  registeredHotkey: TriggerKey | null
   registeredHotkeyLabel: string | null
   onOpenChange: (open: boolean) => void
   onComplete: () => Promise<void>
@@ -34,15 +36,14 @@ export function OnboardingDialog(props: OnboardingDialogProps): React.JSX.Elemen
     onComplete,
     onSkip
   } = props
+  const { t } = useI18n()
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] w-[min(920px,94vw)] max-w-none overflow-y-auto border border-border/70 bg-background/95 p-0 text-foreground shadow-2xl backdrop-blur-xl">
         <DialogHeader className="sr-only">
-          <DialogTitle>Setup TIA Voice</DialogTitle>
-          <DialogDescription>
-            Add your DashScope key, grant permission, and try voice typing.
-          </DialogDescription>
+          <DialogTitle>{t('onboarding.dialogTitle')}</DialogTitle>
+          <DialogDescription>{t('onboarding.dialogBody')}</DialogDescription>
         </DialogHeader>
 
         <OnboardingFlow

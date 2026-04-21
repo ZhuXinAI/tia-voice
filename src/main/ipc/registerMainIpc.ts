@@ -2,8 +2,10 @@ import { ipcMain } from 'electron'
 
 import {
   IPC_CHANNELS,
+  LANGUAGE_PREFERENCES,
   type PostProcessPresetId,
   THEME_MODES,
+  type LanguagePreference,
   type ProviderKind,
   type ThemeMode,
   type TriggerKey
@@ -22,12 +24,9 @@ export function registerMainIpc(input: {
   startDictation: (source: 'global' | 'onboarding') => Promise<void>
   stopDictation: (source: 'global' | 'onboarding') => Promise<void>
   setThemeMode: (themeMode: ThemeMode) => void
+  setLanguage: (language: LanguagePreference) => void
   setPostProcessPreset: (presetId: PostProcessPresetId) => void
-  savePostProcessPreset: (input: {
-    id: string
-    name: string
-    systemPrompt: string
-  }) => unknown
+  savePostProcessPreset: (input: { id: string; name: string; systemPrompt: string }) => unknown
   resetPostProcessPreset: (presetId: string) => unknown
   createPostProcessPreset: (input: { name: string; systemPrompt: string }) => unknown
   setHotkey: (hotkey: TriggerKey) => void
@@ -56,6 +55,7 @@ export function registerMainIpc(input: {
   ipcMain.removeHandler(IPC_CHANNELS.app.startDictation)
   ipcMain.removeHandler(IPC_CHANNELS.app.stopDictation)
   ipcMain.removeHandler(IPC_CHANNELS.app.setThemeMode)
+  ipcMain.removeHandler(IPC_CHANNELS.app.setLanguage)
   ipcMain.removeHandler(IPC_CHANNELS.app.setPostProcessPreset)
   ipcMain.removeHandler(IPC_CHANNELS.app.savePostProcessPreset)
   ipcMain.removeHandler(IPC_CHANNELS.app.resetPostProcessPreset)
@@ -140,6 +140,16 @@ export function registerMainIpc(input: {
 
     input.setThemeMode(themeMode as ThemeMode)
   })
+  ipcMain.handle(IPC_CHANNELS.app.setLanguage, (_event, language: unknown) => {
+    if (
+      typeof language !== 'string' ||
+      !LANGUAGE_PREFERENCES.includes(language as LanguagePreference)
+    ) {
+      return
+    }
+
+    input.setLanguage(language as LanguagePreference)
+  })
   ipcMain.handle(IPC_CHANNELS.app.setPostProcessPreset, (_event, presetId: unknown) => {
     if (typeof presetId !== 'string' || presetId.trim() === '') {
       return
@@ -187,7 +197,7 @@ export function registerMainIpc(input: {
     }
   )
   ipcMain.handle(IPC_CHANNELS.app.setHotkey, (_event, hotkey: unknown) => {
-    if (hotkey !== 'MetaRight' && hotkey !== 'AltRight') {
+    if (hotkey !== 'MetaRight' && hotkey !== 'AltRight' && hotkey !== 'ControlRight') {
       return
     }
 

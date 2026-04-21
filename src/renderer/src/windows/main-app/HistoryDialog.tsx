@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '@renderer/components/ui/dialog'
+import { useI18n } from '@renderer/i18n'
 
 import { HistoryEntryList } from './HistoryEntryList'
 import type { MainAppHistoryEntry } from './types'
@@ -41,19 +42,18 @@ export function HistoryDialog(props: HistoryDialogProps): React.JSX.Element {
     onOpenDetails,
     onRetry
   } = props
+  const { t } = useI18n()
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl">
         <DialogHeader>
-          <DialogTitle>Full transcription history</DialogTitle>
-          <DialogDescription>
-            Browse all {totalCount} saved transcriptions. Each page shows 10 records.
-          </DialogDescription>
+          <DialogTitle>{t('history.fullTitle')}</DialogTitle>
+          <DialogDescription>{t('history.fullDescription', { totalCount })}</DialogDescription>
         </DialogHeader>
 
         {loading ? (
-          <p className="text-sm text-muted-foreground">Loading history…</p>
+          <p className="text-sm text-muted-foreground">{t('history.loading')}</p>
         ) : (
           <HistoryEntryList
             history={history}
@@ -65,7 +65,10 @@ export function HistoryDialog(props: HistoryDialogProps): React.JSX.Element {
 
         <DialogFooter className="items-center justify-between gap-3 border-t border-border/70 pt-4 sm:flex-row sm:space-x-0">
           <p className="text-sm text-muted-foreground">
-            Page {pageCount === 0 ? 0 : pageIndex + 1} of {pageCount}
+            {t('history.page', {
+              current: pageCount === 0 ? 0 : pageIndex + 1,
+              total: pageCount
+            })}
           </p>
 
           <div className="flex items-center gap-2">
@@ -75,7 +78,7 @@ export function HistoryDialog(props: HistoryDialogProps): React.JSX.Element {
               onClick={onPreviousPage}
               disabled={loading || pageIndex === 0}
             >
-              Previous
+              {t('common.previous')}
             </Button>
             <Button
               type="button"
@@ -83,7 +86,7 @@ export function HistoryDialog(props: HistoryDialogProps): React.JSX.Element {
               onClick={onNextPage}
               disabled={loading || pageIndex >= pageCount - 1}
             >
-              Next
+              {t('common.next')}
             </Button>
           </div>
         </DialogFooter>

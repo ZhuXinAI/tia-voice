@@ -2,6 +2,7 @@ import type { TriggerKey } from '../config/env'
 
 export const triggerKeyCodes: Record<TriggerKey, number> = {
   AltRight: 3640,
+  ControlRight: 3613,
   MetaRight: 3676
 }
 

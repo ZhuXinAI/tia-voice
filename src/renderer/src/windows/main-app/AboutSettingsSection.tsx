@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react'
 
 import { Button } from '@renderer/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@renderer/components/ui/card'
+import { useI18n } from '@renderer/i18n'
 import { cn } from '@renderer/lib/utils'
 
 import { TrayIcon } from './TrayIcon'
@@ -20,17 +21,6 @@ type AboutSettingsSectionProps = {
 
 function formatVersion(version: string): string {
   return version.startsWith('v') ? version : `v${version}`
-}
-
-function formatTimestamp(value: number | null): string | null {
-  if (!value) {
-    return null
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  }).format(value)
 }
 
 function buildStatusLabel(autoUpdate: MainAppState['autoUpdate']): string {
@@ -59,13 +49,20 @@ function buildStatusLabel(autoUpdate: MainAppState['autoUpdate']): string {
 
 export function AboutSettingsSection(props: AboutSettingsSectionProps): React.JSX.Element {
   const { appInfo, autoUpdate, onCheckForUpdates, onRestartToUpdate } = props
+  const { t, formatDateTime } = useI18n()
   const [checkPending, setCheckPending] = useState(false)
   const [restartPending, setRestartPending] = useState(false)
 
   const versionLabel = useMemo(() => formatVersion(appInfo.version), [appInfo.version])
   const lastCheckedLabel = useMemo(
-    () => formatTimestamp(autoUpdate.lastCheckedAt),
-    [autoUpdate.lastCheckedAt]
+    () =>
+      autoUpdate.lastCheckedAt
+        ? formatDateTime(autoUpdate.lastCheckedAt, {
+            dateStyle: 'medium',
+            timeStyle: 'short'
+          })
+        : null,
+    [autoUpdate.lastCheckedAt, formatDateTime]
   )
   const hasDownloadedUpdate = autoUpdate.status === 'update-downloaded'
   const canCheckForUpdates = autoUpdate.status !== 'checking' && autoUpdate.status !== 'unsupported'
@@ -99,10 +96,8 @@ export function AboutSettingsSection(props: AboutSettingsSectionProps): React.JS
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-3xl font-semibold">About</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Version details, release status, and desktop update controls.
-        </p>
+        <h2 className="text-3xl font-semibold">{t('about.title')}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">{t('about.body')}</p>
       </div>
 
       <Card className="border-border/70 bg-card/70">
@@ -114,10 +109,7 @@ export function AboutSettingsSection(props: AboutSettingsSectionProps): React.JS
               </div>
               <div className="space-y-1">
                 <CardTitle className="text-2xl">{appInfo.name}</CardTitle>
-                <p className="text-sm text-muted-foreground">
-                  Voice dictation, PostProcess, and desktop assistant controls for your Mac
-                  workflow.
-                </p>
+                <p className="text-sm text-muted-foreground">{t('about.productBody')}</p>
               </div>
             </div>
 
@@ -130,20 +122,22 @@ export function AboutSettingsSection(props: AboutSettingsSectionProps): React.JS
         <CardContent className="space-y-5 p-5">
           <div className="grid gap-3 md:grid-cols-3">
             <div className="rounded-xl border border-border/70 bg-background/60 p-4">
-              <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Version</p>
+              <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">
+                {t('about.version')}
+              </p>
               <p className="mt-2 text-base font-medium">{versionLabel}</p>
             </div>
             <div className="rounded-xl border border-border/70 bg-background/60 p-4">
               <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">
-                Update Status
+                {t('about.updateStatus')}
               </p>
               <p className="mt-2 text-base font-medium">{buildStatusLabel(autoUpdate)}</p>
             </div>
             <div className="rounded-xl border border-border/70 bg-background/60 p-4">
               <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">
-                Last Checked
+                {t('about.lastChecked')}
               </p>
-              <p className="mt-2 text-base font-medium">{lastCheckedLabel ?? 'Not yet'}</p>
+              <p className="mt-2 text-base font-medium">{lastCheckedLabel ?? t('about.notYet')}</p>
             </div>
           </div>
 
@@ -168,7 +162,7 @@ export function AboutSettingsSection(props: AboutSettingsSectionProps): React.JS
             {hasDownloadedUpdate ? (
               <Button type="button" onClick={() => void handleRestartToUpdate()}>
                 <Download className="h-4 w-4" />
-                {restartPending ? 'Restarting…' : 'Restart to update'}
+                {restartPending ? t('sidebar.restarting') : t('about.restartToUpdate')}
               </Button>
             ) : (
               <Button
@@ -179,33 +173,29 @@ export function AboutSettingsSection(props: AboutSettingsSectionProps): React.JS
               >
                 <RefreshCcw className="h-4 w-4" />
                 {checkPending || autoUpdate.status === 'checking'
-                  ? 'Checking...'
-                  : 'Check for updates'}
+                  ? t('about.checking')
+                  : t('about.checkForUpdates')}
               </Button>
             )}
 
             <Button asChild variant="outline">
               <a href={RELEASES_URL} target="_blank" rel="noreferrer">
                 <ExternalLink className="h-4 w-4" />
-                Release notes
+                {t('about.releaseNotes')}
               </a>
             </Button>
 
             <Button asChild variant="ghost">
               <a href={REPOSITORY_URL} target="_blank" rel="noreferrer">
                 <Github className="h-4 w-4" />
-                Repository
+                {t('about.repository')}
               </a>
             </Button>
           </div>
 
           <div className="flex items-start gap-3 rounded-xl border border-border/70 bg-muted/20 p-4 text-sm text-muted-foreground">
             <Info className="mt-0.5 h-4 w-4 shrink-0" />
-            <p>
-              Packaged builds check the latest GitHub release automatically. When a download
-              finishes, the app shows an <span className="font-medium text-foreground">Update</span>{' '}
-              badge in the sidebar header so you can restart into the new version when it suits you.
-            </p>
+            <p>{t('about.updateBadge')}</p>
           </div>
         </CardContent>
       </Card>

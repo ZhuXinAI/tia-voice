@@ -13,6 +13,8 @@ import {
   stopDictation
 } from '@renderer/lib/ipc'
 import { requestMicrophonePermission } from '@renderer/lib/microphoneAccess'
+import { useI18n } from '@renderer/i18n'
+import type { TriggerKey } from '../../../../preload/index'
 
 import type { MainAppState } from '../main-app/types'
 
@@ -21,7 +23,7 @@ type OnboardingFlowProps = {
   initialDashscopeKeyLabel: string | null
   hotkeyHint: string
   initialPermissions: MainAppState['permissions']
-  registeredHotkey: 'MetaRight' | 'AltRight' | null
+  registeredHotkey: TriggerKey | null
   registeredHotkeyLabel: string | null
   mode?: 'page' | 'dialog'
   onComplete: () => Promise<void>
@@ -64,6 +66,7 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
     onComplete
   } = props
   const onSkip = props.onSkip ?? onComplete
+  const { t } = useI18n()
   const [dashscopeConfigured, setDashscopeConfigured] = useState(initialDashscopeConfigured)
   const [dashscopeKeyLabel, setDashscopeKeyLabel] = useState(initialDashscopeKeyLabel)
   const [accessibilityGranted, setAccessibilityGranted] = useState(
@@ -297,9 +300,11 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
         <div className="mb-6 flex items-center justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">
-              Getting Started
+              {t('onboarding.gettingStarted')}
             </p>
-            <p className="text-sm font-medium">Step {step} of 5</p>
+            <p className="text-sm font-medium">
+              {t('onboarding.step', { current: step, total: 5 })}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             {[1, 2, 3, 4, 5].map((item) => (
@@ -315,7 +320,7 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
               disabled={isSkipping}
               onClick={() => void handleSkip()}
             >
-              {isSkipping ? 'Skipping…' : 'Skip'}
+              {isSkipping ? t('onboarding.skipping') : t('onboarding.skip')}
             </Button>
           </div>
         </div>
@@ -327,25 +332,20 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
             </div>
             <div className="space-y-2">
               <h1 className="text-3xl font-semibold tracking-tight">TIA Voice</h1>
-              <p className="text-base text-muted-foreground">
-                Open source voice typing for your desktop, powered by your own DashScope key.
-              </p>
+              <p className="text-base text-muted-foreground">{t('onboarding.heroBody')}</p>
             </div>
             <div className="space-y-3">
               <label className="space-y-2 text-sm font-medium">
-                <span>DashScope API key</span>
+                <span>{t('onboarding.dashscopeKey')}</span>
                 <Input
                   autoFocus
                   type="password"
                   value={dashscopeApiKey}
                   onChange={(event) => setDashscopeApiKey(event.target.value)}
-                  placeholder="Enter your DashScope API key"
+                  placeholder={t('onboarding.enterDashscopeKey')}
                 />
               </label>
-              <p className="text-sm text-muted-foreground">
-                We store your key locally on this device and use it directly for ASR and
-                PostProcess.
-              </p>
+              <p className="text-sm text-muted-foreground">{t('onboarding.dashscopeKeyBody')}</p>
               {dashscopeKeyLabel ? (
                 <p className="text-sm text-muted-foreground">{dashscopeKeyLabel}</p>
               ) : null}
@@ -356,7 +356,7 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
               onClick={() => void handleSaveDashscopeKey()}
               type="button"
             >
-              {providerSavePending ? 'Saving key…' : 'Save and continue'}
+              {providerSavePending ? t('onboarding.saveKey') : t('onboarding.saveContinue')}
             </Button>
             {providerSaveError ? (
               <p className="text-sm text-destructive">{providerSaveError}</p>
@@ -367,28 +367,29 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
         {step === 2 ? (
           <div className="space-y-5">
             <h2 className="text-2xl font-semibold tracking-tight">
-              Allow Accessibility Permission
+              {t('onboarding.accessibilityTitle')}
             </h2>
-            <p className="text-sm text-muted-foreground">
-              TIA Voice needs Accessibility permission for global hotkey listening. We will keep
-              checking while this window stays open.
-            </p>
+            <p className="text-sm text-muted-foreground">{t('onboarding.accessibilityBody')}</p>
             <div className="rounded-xl border border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
-              <p>{accessibilityGranted ? 'Accessibility granted.' : 'Waiting for permission...'}</p>
+              <p>
+                {accessibilityGranted
+                  ? t('onboarding.accessibilityGranted')
+                  : t('onboarding.waitingPermission')}
+              </p>
               <p className="mt-2">
                 macOS path: System Settings &gt; Privacy &amp; Security &gt; Accessibility
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <Button onClick={() => void openPermissionSettings('accessibility')} type="button">
-                Open Accessibility Settings
+                {t('onboarding.openAccessibility')}
               </Button>
               <Button
                 variant="outline"
                 onClick={() => void checkAccessibilityPermission(true)}
                 type="button"
               >
-                Re-check permission
+                {t('onboarding.recheckPermission')}
               </Button>
             </div>
             {permissionError ? <p className="text-sm text-destructive">{permissionError}</p> : null}
@@ -397,26 +398,30 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
 
         {step === 3 ? (
           <div className="space-y-5">
-            <h2 className="text-2xl font-semibold tracking-tight">Allow Microphone Permission</h2>
-            <p className="text-sm text-muted-foreground">
-              TIA Voice also needs microphone access before dictation can start.
-            </p>
+            <h2 className="text-2xl font-semibold tracking-tight">
+              {t('onboarding.microphoneTitle')}
+            </h2>
+            <p className="text-sm text-muted-foreground">{t('onboarding.microphoneBody')}</p>
             <div className="rounded-xl border border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
-              <p>{microphoneGranted ? 'Microphone granted.' : 'Waiting for permission...'}</p>
+              <p>
+                {microphoneGranted
+                  ? t('onboarding.microphoneGranted')
+                  : t('onboarding.waitingPermission')}
+              </p>
               <p className="mt-2">
                 macOS path: System Settings &gt; Privacy &amp; Security &gt; Microphone
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <Button onClick={() => void handleRequestMicrophonePermission()} type="button">
-                Request Microphone Permission
+                {t('onboarding.requestMic')}
               </Button>
               <Button
                 variant="outline"
                 onClick={() => void checkMicrophonePermission(true)}
                 type="button"
               >
-                Re-check permission
+                {t('onboarding.recheckPermission')}
               </Button>
             </div>
             {permissionError ? <p className="text-sm text-destructive">{permissionError}</p> : null}
@@ -425,29 +430,29 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
 
         {step === 4 ? (
           <div className="space-y-5">
-            <h2 className="text-2xl font-semibold tracking-tight">Try Your First Dictation</h2>
-            <p className="text-sm text-muted-foreground">
-              Say something like “This is the first sentence I spoke using TIA Voice”.
-            </p>
+            <h2 className="text-2xl font-semibold tracking-tight">
+              {t('onboarding.firstDictationTitle')}
+            </h2>
+            <p className="text-sm text-muted-foreground">{t('onboarding.firstDictationBody')}</p>
             <div className="rounded-xl border border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
               <p>{hotkeyHint}</p>
               <p className="mt-2">
-                Current dictation shortcut:{' '}
+                {t('onboarding.currentShortcut')}{' '}
                 <span className="font-medium text-foreground">
-                  {registeredHotkeyLabel ?? 'Unavailable'}
+                  {registeredHotkeyLabel ?? t('onboarding.unavailable')}
                 </span>
-                . The recording bar will appear while you hold it down.
+                . {t('onboarding.recordingBar')}
               </p>
             </div>
             <Textarea
               value={practiceDraft}
               onChange={(event) => setPracticeDraft(event.target.value)}
               rows={6}
-              placeholder="This is the first sentence I spoke using TIA Voice"
+              placeholder={t('onboarding.practicePlaceholder')}
             />
             <div className="flex justify-end">
               <Button onClick={() => setStep(5)} type="button">
-                Next
+                {t('common.nextStep')}
               </Button>
             </div>
           </div>
@@ -455,10 +460,10 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
 
         {step === 5 ? (
           <div className="space-y-5">
-            <h2 className="text-2xl font-semibold tracking-tight">Edit Text with Voice</h2>
-            <p className="text-sm text-muted-foreground">
-              Select the text below and say “Update this part of text into a serious email.”
-            </p>
+            <h2 className="text-2xl font-semibold tracking-tight">
+              {t('onboarding.editWithVoiceTitle')}
+            </h2>
+            <p className="text-sm text-muted-foreground">{t('onboarding.editWithVoiceBody')}</p>
             <Textarea
               value={rewriteDraft}
               onChange={(event) => setRewriteDraft(event.target.value)}
@@ -466,14 +471,14 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
             />
             <div className="flex flex-wrap items-center justify-between gap-3">
               <Button variant="outline" onClick={() => setStep(4)} type="button">
-                Previous
+                {t('common.previous')}
               </Button>
               <Button
                 onClick={() => void handleFinish()}
                 disabled={isFinishing || isSkipping}
                 type="button"
               >
-                {isFinishing ? 'Saving…' : 'All set'}
+                {isFinishing ? t('common.saving') : t('common.allSet')}
               </Button>
             </div>
             {finishError ? <p className="text-sm text-destructive">{finishError}</p> : null}

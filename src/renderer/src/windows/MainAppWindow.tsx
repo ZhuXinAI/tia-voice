@@ -15,6 +15,7 @@ import {
   saveOpenAiApiKey,
   resetPostProcessPreset,
   savePostProcessPreset,
+  setLanguage,
   setPostProcessPreset,
   showOnboardingWindow,
   setHotkey,
@@ -28,8 +29,11 @@ import type {
   PostProcessPresetId,
   ProviderKind,
   ThemeMode,
-  TriggerKey
+  TriggerKey,
+  LanguagePreference
 } from '../../../preload/index'
+import { I18nProvider } from '@renderer/i18n'
+import { getNavigatorPreferredLocales, resolveAppLanguage } from '../../../shared/i18n/config'
 
 import { defaultMainAppState, starterDictionary } from './main-app/defaults'
 import { DictionaryRoute } from './main-app/DictionaryRoute'
@@ -291,6 +295,28 @@ export default function MainAppWindow(): React.JSX.Element {
     await syncMainAppState()
   }
 
+  const handleLanguageChange = async (language: LanguagePreference): Promise<void> => {
+    const previousLanguage = state.language
+    const resolved = resolveAppLanguage(language, getNavigatorPreferredLocales())
+    setState((current) => ({
+      ...current,
+      language: {
+        preference: language,
+        resolved
+      }
+    }))
+
+    try {
+      await setLanguage(language)
+      await syncMainAppState()
+    } catch {
+      setState((current) => ({
+        ...current,
+        language: previousLanguage
+      }))
+    }
+  }
+
   const handleResetOnboarding = async (): Promise<void> => {
     await resetOnboarding()
     await showOnboardingWindow()
@@ -357,141 +383,146 @@ export default function MainAppWindow(): React.JSX.Element {
   }
 
   return (
-    <HashRouter>
-      <Routes>
-        <Route
-          path="/"
-          element={
-            <MainAppLayout
-              dashscope={state.dashscope}
-              openai={state.openai}
-              selectedProvider={state.selectedProvider}
-              postProcessPreset={state.postProcessPreset}
-              postProcessPresets={state.postProcessPresets}
-              onOpenSettings={handleOpenSettings}
-              permissions={state.permissions}
-              voiceBackendStatus={state.voiceBackendStatus}
-              autoUpdate={state.autoUpdate}
-              onRestartToUpdate={handleRestartToUpdate}
+    <I18nProvider language={state.language.resolved}>
+      <HashRouter>
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <MainAppLayout
+                dashscope={state.dashscope}
+                openai={state.openai}
+                selectedProvider={state.selectedProvider}
+                postProcessPreset={state.postProcessPreset}
+                postProcessPresets={state.postProcessPresets}
+                onOpenSettings={handleOpenSettings}
+                permissions={state.permissions}
+                voiceBackendStatus={state.voiceBackendStatus}
+                autoUpdate={state.autoUpdate}
+                onRestartToUpdate={handleRestartToUpdate}
+              />
+            }
+          >
+            <Route
+              index
+              element={
+                <HomeRoute
+                  wordsSpoken={state.historySummary.wordsSpoken}
+                  averageWpm={state.historySummary.averageWpm}
+                  totalCount={state.historySummary.totalCount}
+                  history={state.history}
+                  retrying={retrying}
+                  onOpenDetails={(entry) => void handleOpenHistoryDetails(entry)}
+                  onShowAll={() => setHistoryListOpen(true)}
+                  onRetry={handleRetry}
+                />
+              }
             />
-          }
-        >
-          <Route
-            index
-            element={
-              <HomeRoute
-                wordsSpoken={state.historySummary.wordsSpoken}
-                averageWpm={state.historySummary.averageWpm}
-                totalCount={state.historySummary.totalCount}
-                history={state.history}
-                retrying={retrying}
-                onOpenDetails={(entry) => void handleOpenHistoryDetails(entry)}
-                onShowAll={() => setHistoryListOpen(true)}
-                onRetry={handleRetry}
-              />
-            }
-          />
 
-          <Route
-            path="dictionary"
-            element={
-              <DictionaryRoute
-                dictionary={dictionary}
-                phraseDraft={phraseDraft}
-                replacementDraft={replacementDraft}
-                noteDraft={noteDraft}
-                onPhraseDraftChange={setPhraseDraft}
-                onReplacementDraftChange={setReplacementDraft}
-                onNoteDraftChange={setNoteDraft}
-                onAddPhrase={handleAddPhrase}
-              />
-            }
-          />
+            <Route
+              path="dictionary"
+              element={
+                <DictionaryRoute
+                  dictionary={dictionary}
+                  phraseDraft={phraseDraft}
+                  replacementDraft={replacementDraft}
+                  noteDraft={noteDraft}
+                  onPhraseDraftChange={setPhraseDraft}
+                  onReplacementDraftChange={setReplacementDraft}
+                  onNoteDraftChange={setNoteDraft}
+                  onAddPhrase={handleAddPhrase}
+                />
+              }
+            />
 
-          <Route
-            path="presets"
-            element={
-              <PresetsRoute
-                presets={state.postProcessPresets}
-                selectedPreset={state.postProcessPreset}
-                onSelectPreset={(presetId) => void handlePostProcessPresetChange(presetId)}
-                onSavePreset={(input) => void handleSavePostProcessPreset(input)}
-                onResetPreset={(presetId) => void handleResetPostProcessPreset(presetId)}
-                onCreatePreset={(input) => void handleCreatePostProcessPreset(input)}
-              />
-            }
-          />
-        </Route>
+            <Route
+              path="presets"
+              element={
+                <PresetsRoute
+                  presets={state.postProcessPresets}
+                  selectedPreset={state.postProcessPreset}
+                  onSelectPreset={(presetId) => void handlePostProcessPresetChange(presetId)}
+                  onSavePreset={(input) => void handleSavePostProcessPreset(input)}
+                  onResetPreset={(presetId) => void handleResetPostProcessPreset(presetId)}
+                  onCreatePreset={(input) => void handleCreatePostProcessPreset(input)}
+                />
+              }
+            />
+          </Route>
 
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
 
-      <SettingsDialog
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        section={settingsSection}
-        onSectionChange={setSettingsSection}
-        registeredHotkey={state.registeredHotkey}
-        selectedProvider={state.selectedProvider}
-        selectedMicrophone={{
-          deviceId: state.microphone.selectedDeviceId,
-          label: state.microphone.selectedDeviceLabel
-        }}
-        microphoneOptions={microphoneOptions}
-        dashscope={state.dashscope}
-        openai={state.openai}
-        permissions={state.permissions}
-        appInfo={state.appInfo}
-        autoUpdate={state.autoUpdate}
-        themeMode={state.themeMode}
-        onThemeModeChange={handleThemeModeChange}
-        onHotkeyChange={handleHotkeyChange}
-        onMicrophoneChange={handleMicrophoneChange}
-        onProviderChange={handleProviderChange}
-        onSaveDashscopeApiKey={handleSaveDashscopeApiKey}
-        onSaveOpenAiApiKey={handleSaveOpenAiApiKey}
-        onOpenPermissionSettings={handleOpenPermissionSettings}
-        onCheckForUpdates={handleCheckForUpdates}
-        onRestartToUpdate={handleRestartToUpdate}
-        onOpenOnboarding={handleOpenOnboardingFromSettings}
-        onResetOnboarding={handleResetOnboarding}
-      />
+        <SettingsDialog
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          section={settingsSection}
+          onSectionChange={setSettingsSection}
+          registeredHotkey={state.registeredHotkey}
+          selectedProvider={state.selectedProvider}
+          selectedMicrophone={{
+            deviceId: state.microphone.selectedDeviceId,
+            label: state.microphone.selectedDeviceLabel
+          }}
+          microphoneOptions={microphoneOptions}
+          dashscope={state.dashscope}
+          openai={state.openai}
+          permissions={state.permissions}
+          appInfo={state.appInfo}
+          autoUpdate={state.autoUpdate}
+          languagePreference={state.language.preference}
+          resolvedLanguage={state.language.resolved}
+          themeMode={state.themeMode}
+          onThemeModeChange={handleThemeModeChange}
+          onLanguageChange={handleLanguageChange}
+          onHotkeyChange={handleHotkeyChange}
+          onMicrophoneChange={handleMicrophoneChange}
+          onProviderChange={handleProviderChange}
+          onSaveDashscopeApiKey={handleSaveDashscopeApiKey}
+          onSaveOpenAiApiKey={handleSaveOpenAiApiKey}
+          onOpenPermissionSettings={handleOpenPermissionSettings}
+          onCheckForUpdates={handleCheckForUpdates}
+          onRestartToUpdate={handleRestartToUpdate}
+          onOpenOnboarding={handleOpenOnboardingFromSettings}
+          onResetOnboarding={handleResetOnboarding}
+        />
 
-      <HistoryDebugDialog
-        open={selectedHistory !== null}
-        onOpenChange={handleHistoryDetailOpenChange}
-        historyTitle={selectedHistory?.title ?? 'Transcription details'}
-        detail={selectedHistoryDetail}
-        loading={historyDetailLoading}
-      />
+        <HistoryDebugDialog
+          open={selectedHistory !== null}
+          onOpenChange={handleHistoryDetailOpenChange}
+          historyTitle={selectedHistory?.title ?? 'Transcription details'}
+          detail={selectedHistoryDetail}
+          loading={historyDetailLoading}
+        />
 
-      <HistoryDialog
-        open={historyListOpen}
-        onOpenChange={setHistoryListOpen}
-        history={historyPagination.history}
-        totalCount={state.historySummary.totalCount}
-        pageIndex={historyPagination.pageIndex}
-        pageCount={historyPagination.pageCount}
-        loading={historyPagination.loading}
-        retrying={retrying}
-        onPreviousPage={historyPagination.goToPreviousPage}
-        onNextPage={historyPagination.goToNextPage}
-        onOpenDetails={handleOpenHistoryDetailsFromDialog}
-        onRetry={handleRetry}
-      />
+        <HistoryDialog
+          open={historyListOpen}
+          onOpenChange={setHistoryListOpen}
+          history={historyPagination.history}
+          totalCount={state.historySummary.totalCount}
+          pageIndex={historyPagination.pageIndex}
+          pageCount={historyPagination.pageCount}
+          loading={historyPagination.loading}
+          retrying={retrying}
+          onPreviousPage={historyPagination.goToPreviousPage}
+          onNextPage={historyPagination.goToNextPage}
+          onOpenDetails={handleOpenHistoryDetailsFromDialog}
+          onRetry={handleRetry}
+        />
 
-      <OnboardingDialog
-        open={onboardingOpen}
-        dashscopeConfigured={state.dashscope.configured}
-        dashscopeKeyLabel={state.dashscope.keyLabel}
-        hotkeyHint={state.hotkeyHint}
-        permissions={state.permissions}
-        registeredHotkey={state.registeredHotkey}
-        registeredHotkeyLabel={state.registeredHotkeyLabel}
-        onOpenChange={handleOnboardingOpenChange}
-        onComplete={handleCompleteOnboarding}
-        onSkip={handleSkipOnboarding}
-      />
-    </HashRouter>
+        <OnboardingDialog
+          open={onboardingOpen}
+          dashscopeConfigured={state.dashscope.configured}
+          dashscopeKeyLabel={state.dashscope.keyLabel}
+          hotkeyHint={state.hotkeyHint}
+          permissions={state.permissions}
+          registeredHotkey={state.registeredHotkey}
+          registeredHotkeyLabel={state.registeredHotkeyLabel}
+          onOpenChange={handleOnboardingOpenChange}
+          onComplete={handleCompleteOnboarding}
+          onSkip={handleSkipOnboarding}
+        />
+      </HashRouter>
+    </I18nProvider>
   )
 }

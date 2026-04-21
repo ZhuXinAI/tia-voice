@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export type TriggerKey = 'MetaRight' | 'AltRight'
+export type TriggerKey = 'MetaRight' | 'AltRight' | 'ControlRight'
 export const DEFAULT_DASHSCOPE_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
 
 const envSchema = z.object({
@@ -18,6 +18,11 @@ export function loadAppEnv(input: { platform: NodeJS.Platform; env: NodeJS.Proce
 
   return {
     dashscopeBaseUrl,
-    pushToTalkKey: input.platform === 'darwin' ? 'MetaRight' : 'AltRight'
+    pushToTalkKey:
+      input.platform === 'darwin'
+        ? 'MetaRight'
+        : input.platform === 'win32'
+          ? 'ControlRight'
+          : 'AltRight'
   }
 }

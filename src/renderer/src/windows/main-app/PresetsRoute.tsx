@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Sparkles } from 'lucide-react'
 
+import { useI18n } from '@renderer/i18n'
 import type { PostProcessPresetPayload } from '../../../../preload/index'
 import { PostProcessPresetEditor } from './PostProcessPresetEditor'
 import { PostProcessPresetList } from './PostProcessPresetList'
@@ -15,14 +16,9 @@ type PresetsRouteProps = {
 }
 
 export function PresetsRoute(props: PresetsRouteProps): React.JSX.Element {
-  const {
-    presets,
-    selectedPreset,
-    onSelectPreset,
-    onSavePreset,
-    onResetPreset,
-    onCreatePreset
-  } = props
+  const { presets, selectedPreset, onSelectPreset, onSavePreset, onResetPreset, onCreatePreset } =
+    props
+  const { t } = useI18n()
 
   const [dialogPresetId, setDialogPresetId] = useState<string | null>(null)
   const [creatingNew, setCreatingNew] = useState(false)
@@ -137,24 +133,23 @@ export function PresetsRoute(props: PresetsRouteProps): React.JSX.Element {
         <div className="max-w-3xl">
           <div className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/75 px-3 py-1 text-xs font-medium text-muted-foreground">
             <Sparkles className="h-3.5 w-3.5" />
-            Presets shape the PostProcess prompt
+            {t('presets.badge')}
           </div>
           <h2 className="mt-4 text-3xl font-semibold tracking-normal text-foreground">
-            Tune the instruction layer that sits between the base prompt and the live context.
+            {t('presets.heroTitle')}
           </h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-            Pick a preset for everyday use, rewrite its instructions when the output needs a
-            different tone, and add new presets for other writing styles or workflows.
+            {t('presets.heroBody')}
           </p>
           <div className="mt-5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <span className="rounded-full border border-border/70 bg-background/80 px-3 py-1.5">
-              1 Base prompt
+              {t('presets.layer.base')}
             </span>
             <span className="rounded-full border border-border/70 bg-background/80 px-3 py-1.5">
-              2 Preset prompt
+              {t('presets.layer.preset')}
             </span>
             <span className="rounded-full border border-border/70 bg-background/80 px-3 py-1.5">
-              3 Remaining context
+              {t('presets.layer.context')}
             </span>
           </div>
         </div>

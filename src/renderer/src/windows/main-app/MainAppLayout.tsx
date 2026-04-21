@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 
 import { cn } from '@renderer/lib/utils'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@renderer/components/ui/sidebar'
+import { useI18n } from '@renderer/i18n'
 
 import { MainSidebar } from './MainSidebar'
 import type { DashscopeSetupState, MainAppState, SettingsSection } from './types'
@@ -33,19 +34,20 @@ export function MainAppLayout(props: MainAppLayoutProps): React.JSX.Element {
     autoUpdate,
     onRestartToUpdate
   } = props
+  const { t } = useI18n()
   const location = useLocation()
 
   const currentSectionTitle = useMemo(() => {
     if (location.pathname.startsWith('/dictionary')) {
-      return 'Dictionary'
+      return t('nav.dictionary')
     }
 
     if (location.pathname.startsWith('/presets')) {
-      return 'Presets'
+      return t('nav.presets')
     }
 
-    return 'Home'
-  }, [location.pathname])
+    return t('nav.home')
+  }, [location.pathname, t])
 
   return (
     <SidebarProvider defaultOpen className="h-svh bg-background text-foreground">
@@ -65,7 +67,9 @@ export function MainAppLayout(props: MainAppLayoutProps): React.JSX.Element {
         <header className="flex h-14 items-center gap-3 border-b border-border/60 px-4">
           <SidebarTrigger />
           <div>
-            <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Workspace</p>
+            <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">
+              {t('app.workspace')}
+            </p>
             <h1 className="text-sm font-semibold">{currentSectionTitle}</h1>
           </div>
 

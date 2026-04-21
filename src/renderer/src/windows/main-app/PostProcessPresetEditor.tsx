@@ -12,6 +12,7 @@ import {
 import { Input } from '@renderer/components/ui/input'
 import { Label } from '@renderer/components/ui/label'
 import { Textarea } from '@renderer/components/ui/textarea'
+import { useI18n } from '@renderer/i18n'
 import type { PostProcessPresetPayload } from '../../../../preload/index'
 
 type PostProcessPresetEditorProps = {
@@ -44,11 +45,14 @@ export function PostProcessPresetEditor(props: PostProcessPresetEditorProps): Re
     onSave,
     onResetToDefault
   } = props
+  const { t } = useI18n()
 
-  const title = creatingNew ? 'New preset' : preset?.name ?? 'Preset'
+  const title = creatingNew
+    ? t('presetEditor.newTitle')
+    : (preset?.name ?? t('presetEditor.fallbackTitle'))
   const description = creatingNew
-    ? 'Create a new PostProcess instruction set.'
-    : 'Adjust the prompt used for this preset, or reset the built-in wording back to default.'
+    ? t('presetEditor.newDescription')
+    : t('presetEditor.editDescription')
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -62,31 +66,30 @@ export function PostProcessPresetEditor(props: PostProcessPresetEditorProps): Re
           <div className="rounded-lg border border-border/70 bg-background/60 p-4">
             <div className="flex items-center gap-2 text-sm font-medium text-foreground">
               <Sparkles className="h-4 w-4 text-primary" />
-              Prompt order
+              {t('presetEditor.promptOrder')}
             </div>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Base prompt, then this preset prompt, then the remaining transcript and
-              selected-text context.
+              {t('presetEditor.promptOrderBody')}
             </p>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="preset-name">Preset name</Label>
+            <Label htmlFor="preset-name">{t('presetEditor.name')}</Label>
             <Input
               id="preset-name"
               value={draftName}
               onChange={(event) => onDraftNameChange(event.target.value)}
-              placeholder="e.g. Customer support"
+              placeholder={t('presetEditor.namePlaceholder')}
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="preset-instructions">Preset prompt</Label>
+            <Label htmlFor="preset-instructions">{t('presetEditor.prompt')}</Label>
             <Textarea
               id="preset-instructions"
               value={draftSystemPrompt}
               onChange={(event) => onDraftSystemPromptChange(event.target.value)}
-              placeholder="Describe how the PostProcess pass should shape the text."
+              placeholder={t('presetEditor.promptPlaceholder')}
               rows={9}
             />
           </div>
@@ -98,14 +101,18 @@ export function PostProcessPresetEditor(props: PostProcessPresetEditorProps): Re
           <div>
             {!creatingNew && preset?.builtIn ? (
               <Button type="button" variant="ghost" onClick={onResetToDefault} disabled={pending}>
-                {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-                Reset to default
+                {pending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RotateCcw className="h-4 w-4" />
+                )}
+                {t('presetEditor.reset')}
               </Button>
             ) : null}
           </div>
           <Button type="button" onClick={onSave} disabled={pending}>
             {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {creatingNew ? 'Create preset' : 'Save changes'}
+            {creatingNew ? t('presetEditor.create') : t('presetEditor.save')}
           </Button>
         </DialogFooter>
       </DialogContent>

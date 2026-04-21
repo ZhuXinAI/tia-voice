@@ -10,8 +10,15 @@ describe('loadAppEnv', () => {
 
     const loaded = loadAppEnv({ platform: 'win32', env: {} as NodeJS.ProcessEnv })
 
-    expect(loaded.pushToTalkKey).toBe('AltRight')
+    expect(loaded.pushToTalkKey).toBe('ControlRight')
     expect(loaded.dashscopeBaseUrl).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1')
+
+    const linuxLoaded = loadAppEnv({ platform: 'linux', env: {} as NodeJS.ProcessEnv })
+
+    expect(linuxLoaded.pushToTalkKey).toBe('AltRight')
+    expect(linuxLoaded.dashscopeBaseUrl).toBe(
+      'https://dashscope.aliyuncs.com/compatible-mode/v1'
+    )
   })
 
   it('applies a custom DashScope base URL', () => {

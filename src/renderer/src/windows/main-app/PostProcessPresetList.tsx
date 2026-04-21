@@ -8,6 +8,7 @@ import {
   TooltipProvider,
   TooltipTrigger
 } from '@renderer/components/ui/tooltip'
+import { useI18n } from '@renderer/i18n'
 import { cn } from '@renderer/lib/utils'
 import type { PostProcessPresetPayload } from '../../../../preload/index'
 
@@ -30,20 +31,18 @@ function summarizePrompt(value: string): string {
 
 export function PostProcessPresetList(props: PostProcessPresetListProps): React.JSX.Element {
   const { presets, selectedPresetId, onSelectPreset, onEditPreset, onStartCreate } = props
+  const { t } = useI18n()
 
   return (
     <Card className="border-border/70 bg-card/70">
       <CardHeader className="flex flex-row items-start justify-between gap-4">
         <div>
-          <CardTitle>Preset library</CardTitle>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Click a preset to make it active. Use edit to adjust its prompt or reset built-ins to
-            their defaults.
-          </p>
+          <CardTitle>{t('presets.libraryTitle')}</CardTitle>
+          <p className="mt-2 text-sm text-muted-foreground">{t('presets.libraryDescription')}</p>
         </div>
         <Button type="button" size="sm" onClick={onStartCreate}>
           <Plus className="h-4 w-4" />
-          New preset
+          {t('presets.newPreset')}
         </Button>
       </CardHeader>
 
@@ -79,10 +78,12 @@ export function PostProcessPresetList(props: PostProcessPresetListProps): React.
 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <p className="truncate text-sm font-semibold text-foreground">{preset.name}</p>
+                      <p className="truncate text-sm font-semibold text-foreground">
+                        {preset.name}
+                      </p>
                       {preset.builtIn ? (
                         <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-secondary-foreground">
-                          Built-in
+                          {t('presets.builtIn')}
                         </span>
                       ) : null}
                     </div>
@@ -111,13 +112,13 @@ export function PostProcessPresetList(props: PostProcessPresetListProps): React.
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 rounded-full text-muted-foreground"
-                        aria-label={`Edit preset ${preset.name}`}
+                        aria-label={t('presets.editPresetAria', { name: preset.name })}
                         onClick={() => onEditPreset(preset.id)}
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>Edit preset</TooltipContent>
+                    <TooltipContent>{t('presets.editPreset')}</TooltipContent>
                   </Tooltip>
                 </div>
               </div>

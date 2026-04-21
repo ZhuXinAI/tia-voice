@@ -1,4 +1,6 @@
 import { useEffect } from 'react'
+import { I18nProvider } from './i18n'
+import { getNavigatorPreferredLocales, resolveAppLanguage } from '../../shared/i18n/config'
 
 import MainAppWindow from './windows/MainAppWindow'
 import ChatWindow from './windows/ChatWindow'
@@ -7,6 +9,7 @@ import { getWindowRoleFromLocation, type WindowRole } from './lib/windowRole'
 
 export default function App(props: { initialWindowRole?: WindowRole }): React.JSX.Element {
   const role = props.initialWindowRole ?? getWindowRoleFromLocation()
+  const fallbackLanguage = resolveAppLanguage('system', getNavigatorPreferredLocales())
 
   useEffect(() => {
     document.body.dataset.windowRole = role
@@ -16,12 +19,24 @@ export default function App(props: { initialWindowRole?: WindowRole }): React.JS
   }, [role])
 
   if (role === 'recording-bar') {
-    return <RecordingBarWindow />
+    return (
+      <I18nProvider language={fallbackLanguage}>
+        <RecordingBarWindow />
+      </I18nProvider>
+    )
   }
 
   if (role === 'chat') {
-    return <ChatWindow />
+    return (
+      <I18nProvider language={fallbackLanguage}>
+        <ChatWindow />
+      </I18nProvider>
+    )
   }
 
-  return <MainAppWindow />
+  return (
+    <I18nProvider language={fallbackLanguage}>
+      <MainAppWindow />
+    </I18nProvider>
+  )
 }

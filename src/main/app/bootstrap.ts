@@ -2,6 +2,7 @@ import { existsSync } from 'fs'
 import {
   app,
   BrowserWindow,
+  clipboard as electronClipboard,
   dialog,
   Menu,
   Tray,
@@ -28,7 +29,9 @@ import {
 } from '../hotkeys/triggerKey'
 import { registerMainIpc } from '../ipc/registerMainIpc'
 import type {
+  AppLanguage,
   HistoryPagePayload,
+  LanguagePreference,
   MainAppStatePayload,
   AppInfoPayload,
   PermissionKind,
@@ -54,6 +57,7 @@ import {
   restartToUpdate as restartToInstallUpdate
 } from '../updater/autoUpdater'
 import { createMicrophonePermissionState } from './microphonePermissionState'
+import { resolveAppLanguage } from '../../shared/i18n/config'
 
 const SHOW_MAIN_WINDOW_SHORTCUT = 'CommandOrControl+Shift+Space'
 const ACCESSIBILITY_PERMISSION_RECHECK_INTERVAL_MS = 30_000
@@ -153,21 +157,102 @@ function resolveTrayIcon(): ResolvedIconAsset {
   }
 }
 
-function buildPermissionState(snapshot: PermissionSnapshot): PermissionStatePayload {
+function getPreferredSystemLocales(): string[] {
+  try {
+    const preferred = app.getPreferredSystemLanguages?.()
+    if (Array.isArray(preferred) && preferred.length > 0) {
+      return preferred
+    }
+  } catch (error) {
+    logDebug('app', 'Unable to read preferred system languages', { error })
+  }
+
+  try {
+    const locale = app.getLocale()
+    if (typeof locale === 'string' && locale.trim() !== '') {
+      return [locale]
+    }
+  } catch (error) {
+    logDebug('app', 'Unable to read app locale', { error })
+  }
+
+  return ['en']
+}
+
+function translatePermissionLabel(
+  language: AppLanguage,
+  snapshot: PermissionSnapshot
+): {
+  label: string
+  description: string
+  ctaLabel: string
+} {
+  if (language === 'zh-CN') {
+    if (snapshot.kind === 'accessibility') {
+      return snapshot.granted
+        ? {
+            label: '已启用辅助功能权限',
+            description: 'TIA Voice 现在可以监听全局按住说话快捷键。',
+            ctaLabel: '打开辅助功能设置'
+          }
+        : {
+            label: '需要辅助功能权限',
+            description:
+              '请在系统设置中启用辅助功能权限，这样 TIA Voice 才能监听全局按住说话快捷键。',
+            ctaLabel: '打开辅助功能设置'
+          }
+    }
+
+    return snapshot.granted
+      ? {
+          label: '已启用麦克风权限',
+          description: 'TIA Voice 现在可以访问麦克风进行语音输入。',
+          ctaLabel: '打开麦克风设置'
+        }
+      : {
+          label: snapshot.status === 'not-determined' ? '麦克风权限待确认' : '需要麦克风权限',
+          description: '请在系统设置中启用麦克风权限，这样 TIA Voice 才能采集语音。',
+          ctaLabel: snapshot.status === 'not-determined' ? '请求麦克风权限' : '打开麦克风设置'
+        }
+  }
+
+  if (language === 'zh-TW') {
+    if (snapshot.kind === 'accessibility') {
+      return snapshot.granted
+        ? {
+            label: '輔助使用權限已開啟',
+            description: 'TIA Voice 現在可以監聽全域按住說話快捷鍵。',
+            ctaLabel: '打開輔助使用設定'
+          }
+        : {
+            label: '需要輔助使用權限',
+            description:
+              '請在系統設定中開啟輔助使用權限，這樣 TIA Voice 才能監聽全域按住說話快捷鍵。',
+            ctaLabel: '打開輔助使用設定'
+          }
+    }
+
+    return snapshot.granted
+      ? {
+          label: '麥克風權限已開啟',
+          description: 'TIA Voice 現在可以存取麥克風進行語音輸入。',
+          ctaLabel: '打開麥克風設定'
+        }
+      : {
+          label: snapshot.status === 'not-determined' ? '麥克風權限待確認' : '需要麥克風權限',
+          description: '請在系統設定中開啟麥克風權限，這樣 TIA Voice 才能擷取語音。',
+          ctaLabel: snapshot.status === 'not-determined' ? '請求麥克風權限' : '打開麥克風設定'
+        }
+  }
+
   if (snapshot.kind === 'accessibility') {
     return snapshot.granted
       ? {
-          kind: snapshot.kind,
-          granted: true,
-          status: snapshot.status,
           label: 'Accessibility enabled',
           description: 'TIA Voice can listen for the global push-to-talk key.',
           ctaLabel: 'Open Accessibility Settings'
         }
       : {
-          kind: snapshot.kind,
-          granted: false,
-          status: snapshot.status,
           label: 'Accessibility required',
           description:
             'Enable Accessibility in System Settings so TIA Voice can listen for your global push-to-talk key.',
@@ -177,17 +262,11 @@ function buildPermissionState(snapshot: PermissionSnapshot): PermissionStatePayl
 
   return snapshot.granted
     ? {
-        kind: snapshot.kind,
-        granted: true,
-        status: snapshot.status,
         label: 'Microphone enabled',
         description: 'TIA Voice can access the microphone for dictation.',
         ctaLabel: 'Open Microphone Settings'
       }
     : {
-        kind: snapshot.kind,
-        granted: false,
-        status: snapshot.status,
         label:
           snapshot.status === 'not-determined'
             ? 'Microphone permission pending'
@@ -198,6 +277,29 @@ function buildPermissionState(snapshot: PermissionSnapshot): PermissionStatePayl
             ? 'Request Microphone Permission'
             : 'Open Microphone Settings'
       }
+}
+
+function buildPermissionState(
+  snapshot: PermissionSnapshot,
+  language: AppLanguage
+): PermissionStatePayload {
+  const translated = translatePermissionLabel(language, snapshot)
+
+  if (snapshot.kind === 'accessibility') {
+    return {
+      kind: snapshot.kind,
+      granted: snapshot.granted,
+      status: snapshot.status,
+      ...translated
+    }
+  }
+
+  return {
+    kind: snapshot.kind,
+    granted: snapshot.granted,
+    status: snapshot.status,
+    ...translated
+  }
 }
 
 function getAccessibilityPermissionSnapshot(): PermissionSnapshot {
@@ -260,6 +362,8 @@ function buildMainAppState(input: {
     deviceId: string | null
     label: string | null
   }
+  languagePreference: LanguagePreference
+  resolvedLanguage: AppLanguage
   themeMode: ThemeMode
   postProcessPreset: import('../ipc/channels').PostProcessPresetId
   postProcessPresets: PostProcessPresetRecord[]
@@ -301,18 +405,32 @@ function buildMainAppState(input: {
 
     return Math.max(1, Math.round(wordsSpoken / (elapsedMs / 60000)))
   })()
-  const missingPermissions = [
-    input.permissions.accessibility.granted ? null : 'Accessibility',
-    input.permissions.microphone.granted ? null : 'Microphone'
-  ].filter(Boolean) as string[]
   const providerLabel = PROVIDER_LABELS[input.selectedProvider]
+  const missingPermissionLabels =
+    input.resolvedLanguage === 'zh-CN'
+      ? ['辅助功能', '麦克风']
+      : input.resolvedLanguage === 'zh-TW'
+        ? ['輔助使用', '麥克風']
+        : ['Accessibility', 'Microphone']
+  const missingPermissions = [
+    input.permissions.accessibility.granted ? null : missingPermissionLabels[0],
+    input.permissions.microphone.granted ? null : missingPermissionLabels[1]
+  ].filter(Boolean) as string[]
 
   return {
     appInfo: input.appInfo,
+    language: {
+      preference: input.languagePreference,
+      resolved: input.resolvedLanguage
+    },
     hotkeyHint:
       input.hotkeyReady && input.registeredHotkey
         ? buildHotkeyHint(input.registeredHotkey)
-        : 'Enable operating-system accessibility permissions to use push-to-talk.',
+        : input.resolvedLanguage === 'zh-CN'
+          ? '请先启用系统辅助功能权限，才能使用按住说话。'
+          : input.resolvedLanguage === 'zh-TW'
+            ? '請先開啟系統輔助使用權限，才能使用按住說話。'
+            : 'Enable operating-system accessibility permissions to use push-to-talk.',
     registeredHotkey: input.hotkeyReady ? input.registeredHotkey : null,
     registeredHotkeyLabel:
       input.hotkeyReady && input.registeredHotkey
@@ -352,25 +470,69 @@ function buildMainAppState(input: {
       input.providerConfigured && input.onboardingCompleted && !input.permissions.hasMissing
         ? {
             ready: true,
-            label: 'Voice typing ready',
-            detail: `${providerLabel.name} is configured and ready for voice typing.`
+            label:
+              input.resolvedLanguage === 'zh-CN'
+                ? '语音输入已就绪'
+                : input.resolvedLanguage === 'zh-TW'
+                  ? '語音輸入已就緒'
+                  : 'Voice typing ready',
+            detail:
+              input.resolvedLanguage === 'zh-CN'
+                ? `${providerLabel.name} 已配置完成，可以开始语音输入。`
+                : input.resolvedLanguage === 'zh-TW'
+                  ? `${providerLabel.name} 已設定完成，可以開始語音輸入。`
+                  : `${providerLabel.name} is configured and ready for voice typing.`
           }
         : input.providerConfigured && input.onboardingCompleted
           ? {
               ready: false,
-              label: 'Permissions required',
-              detail: `Enable ${missingPermissions.join(' and ')} in System Settings to finish voice typing setup.`
+              label:
+                input.resolvedLanguage === 'zh-CN'
+                  ? '需要权限'
+                  : input.resolvedLanguage === 'zh-TW'
+                    ? '需要權限'
+                    : 'Permissions required',
+              detail:
+                input.resolvedLanguage === 'zh-CN'
+                  ? `请在系统设置中启用${missingPermissions.join('和')}，以完成语音输入设置。`
+                  : input.resolvedLanguage === 'zh-TW'
+                    ? `請在系統設定中開啟${missingPermissions.join('與')}，以完成語音輸入設定。`
+                    : `Enable ${missingPermissions.join(' and ')} in System Settings to finish voice typing setup.`
             }
           : input.providerConfigured
             ? {
                 ready: false,
-                label: 'Finish setup to enable voice typing',
-                detail: 'Skip or finish setup to turn on the global voice typing workflow.'
+                label:
+                  input.resolvedLanguage === 'zh-CN'
+                    ? '完成设置以启用语音输入'
+                    : input.resolvedLanguage === 'zh-TW'
+                      ? '完成設定以啟用語音輸入'
+                      : 'Finish setup to enable voice typing',
+                detail:
+                  input.resolvedLanguage === 'zh-CN'
+                    ? '跳过或完成引导后，即可启用全局语音输入工作流。'
+                    : input.resolvedLanguage === 'zh-TW'
+                      ? '略過或完成引導後，即可啟用全域語音輸入流程。'
+                      : 'Skip or finish setup to turn on the global voice typing workflow.'
               }
             : {
                 ready: false,
-                label: providerLabel.missingKeyLabel,
-                detail: `Add your ${providerLabel.name} API key in onboarding or settings to start dictating.`
+                label:
+                  input.resolvedLanguage === 'zh-CN'
+                    ? input.selectedProvider === 'openai'
+                      ? '需要 OpenAI 密钥'
+                      : '需要 DashScope 密钥'
+                    : input.resolvedLanguage === 'zh-TW'
+                      ? input.selectedProvider === 'openai'
+                        ? '需要 OpenAI 金鑰'
+                        : '需要 DashScope 金鑰'
+                      : providerLabel.missingKeyLabel,
+                detail:
+                  input.resolvedLanguage === 'zh-CN'
+                    ? `请在引导或设置中添加你的 ${providerLabel.name} API 密钥，然后开始语音输入。`
+                    : input.resolvedLanguage === 'zh-TW'
+                      ? `請在引導或設定中加入你的 ${providerLabel.name} API 金鑰，然後開始語音輸入。`
+                      : `Add your ${providerLabel.name} API key in onboarding or settings to start dictating.`
               },
     historySummary: {
       totalCount: historyByTime.length,
@@ -379,8 +541,8 @@ function buildMainAppState(input: {
     },
     permissions: {
       hasMissing: input.permissions.hasMissing,
-      accessibility: buildPermissionState(input.permissions.accessibility),
-      microphone: buildPermissionState(input.permissions.microphone)
+      accessibility: buildPermissionState(input.permissions.accessibility, input.resolvedLanguage),
+      microphone: buildPermissionState(input.permissions.microphone, input.resolvedLanguage)
     },
     autoUpdate: input.autoUpdate,
     history: historyByTime.slice(0, HISTORY_PAGE_SIZE).map(toHistoryListItem)
@@ -799,6 +961,10 @@ export async function bootstrapApplication(): Promise<void> {
   const syncAppState = (): void => {
     const settings = settingsStore.get()
     const selectedProvider = settings.provider
+    const resolvedLanguage = resolveAppLanguage(
+      settings.languagePreference,
+      getPreferredSystemLocales()
+    )
     windowManager.setAppState(
       buildMainAppState({
         appInfo: {
@@ -809,6 +975,8 @@ export async function bootstrapApplication(): Promise<void> {
         hotkeyReady,
         selectedProvider,
         selectedMicrophone: settings.microphone,
+        languagePreference: settings.languagePreference,
+        resolvedLanguage,
         themeMode: settings.themeMode,
         postProcessPreset: settings.postProcessPreset,
         postProcessPresets: settings.postProcessPresets,
@@ -891,10 +1059,10 @@ export async function bootstrapApplication(): Promise<void> {
     apiKey: resolveOpenAiApiKey,
     postProcessPreset: () => settingsStore.getSelectedPostProcessPreset()
   })
-  const getCurrentAsrProvider = () => {
+  const getCurrentAsrProvider = (): ReturnType<typeof createQwenAsrProvider> => {
     return getSelectedProvider() === 'openai' ? openAiAsrProvider : qwenAsrProvider
   }
-  const getCurrentLlmProvider = () => {
+  const getCurrentLlmProvider = (): ReturnType<typeof createQwenCleanupProvider> => {
     return getSelectedProvider() === 'openai' ? openAiCleanupProvider : qwenCleanupProvider
   }
 
@@ -947,7 +1115,13 @@ export async function bootstrapApplication(): Promise<void> {
       transform: (request) => getCurrentLlmProvider().transform(request)
     },
     actionExecutor: createNutPasteExecutor({
-      platform: process.platform
+      platform: process.platform,
+      clipboard: {
+        setContent: async (text) => {
+          electronClipboard.writeText(text)
+        },
+        getContent: async () => electronClipboard.readText()
+      }
     }),
     historyStore: {
       appendHistory: (entry) => {
@@ -985,7 +1159,9 @@ export async function bootstrapApplication(): Promise<void> {
     triggerKey: activeTriggerKey,
     label: getTriggerKeyLabel(activeTriggerKey)
   })
-  const createHotkeyService = (triggerKey: TriggerKey) =>
+  const createHotkeyService = (
+    triggerKey: TriggerKey
+  ): ReturnType<typeof createGlobalHotkeyService> =>
     createGlobalHotkeyService({
       triggerKey,
       hook: uIOhook,
@@ -1086,6 +1262,10 @@ export async function bootstrapApplication(): Promise<void> {
     stopDictation,
     setThemeMode: (themeMode) => {
       settingsStore.setThemeMode(themeMode)
+      syncAppState()
+    },
+    setLanguage: (language) => {
+      settingsStore.setLanguagePreference(language)
       syncAppState()
     },
     setPostProcessPreset: (presetId) => {

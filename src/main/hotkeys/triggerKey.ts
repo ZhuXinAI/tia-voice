@@ -1,7 +1,15 @@
 import type { TriggerKey } from '../config/env'
 
 export function getTriggerKeyLabel(triggerKey: TriggerKey): string {
-  return triggerKey === 'MetaRight' ? 'Right Command' : 'Right Alt'
+  if (triggerKey === 'MetaRight') {
+    return 'Right Command'
+  }
+
+  if (triggerKey === 'ControlRight') {
+    return 'Right Control'
+  }
+
+  return 'Right Alt'
 }
 
 export function buildHotkeyHint(triggerKey: TriggerKey): string {

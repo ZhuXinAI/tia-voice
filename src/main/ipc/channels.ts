@@ -1,3 +1,10 @@
+import {
+  APP_LANGUAGES,
+  LANGUAGE_PREFERENCES,
+  type AppLanguage,
+  type LanguagePreference
+} from '../../shared/i18n/config'
+
 export const IPC_CHANNELS = {
   recording: {
     command: 'recording:command',
@@ -21,6 +28,7 @@ export const IPC_CHANNELS = {
     startDictation: 'app:start-dictation',
     stopDictation: 'app:stop-dictation',
     setThemeMode: 'app:set-theme-mode',
+    setLanguage: 'app:set-language',
     setPostProcessPreset: 'app:set-post-process-preset',
     savePostProcessPreset: 'app:save-post-process-preset',
     resetPostProcessPreset: 'app:reset-post-process-preset',
@@ -48,8 +56,10 @@ export const POST_PROCESS_PRESET_IDS = ['formal', 'casual'] as const
 export type ThemeMode = (typeof THEME_MODES)[number]
 export type BuiltInPostProcessPresetId = (typeof POST_PROCESS_PRESET_IDS)[number]
 export type PostProcessPresetId = string
+export { APP_LANGUAGES, LANGUAGE_PREFERENCES }
+export type { AppLanguage, LanguagePreference }
 export type ProviderKind = 'dashscope' | 'openai'
-export type TriggerKey = 'MetaRight' | 'AltRight'
+export type TriggerKey = 'MetaRight' | 'AltRight' | 'ControlRight'
 export type PermissionKind = 'accessibility' | 'microphone'
 export type PermissionStatus = 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unknown'
 
@@ -99,6 +109,10 @@ export type MainAppStatePayload = {
   onboarding: {
     completed: boolean
     visible: boolean
+  }
+  language: {
+    preference: LanguagePreference
+    resolved: AppLanguage
   }
   themeMode: ThemeMode
   postProcessPreset: PostProcessPresetId

@@ -2,7 +2,9 @@ import { contextBridge, ipcRenderer } from 'electron'
 import {
   IPC_CHANNELS,
   type AppInfoPayload,
+  type AppLanguage,
   type AutoUpdateStatePayload,
+  type LanguagePreference,
   type PostProcessPresetPayload,
   type PostProcessPresetId,
   type HistoryPagePayload,
@@ -14,7 +16,14 @@ import {
   type ThemeMode
 } from '../main/ipc/channels'
 
-export type { PostProcessPresetId, ProviderKind, ThemeMode, TriggerKey }
+export type {
+  AppLanguage,
+  LanguagePreference,
+  PostProcessPresetId,
+  ProviderKind,
+  ThemeMode,
+  TriggerKey
+}
 export type { PostProcessPresetPayload }
 
 export type ElectronBridge = {
@@ -88,6 +97,10 @@ export type MainAppState = {
     completed: boolean
     visible: boolean
   }
+  language: {
+    preference: LanguagePreference
+    resolved: AppLanguage
+  }
   themeMode: ThemeMode
   postProcessPreset: PostProcessPresetId
   postProcessPresets: PostProcessPresetPayload[]
@@ -132,6 +145,7 @@ export type TiaApi = {
   startDictation(source?: 'global' | 'onboarding'): Promise<void>
   stopDictation(source?: 'global' | 'onboarding'): Promise<void>
   setThemeMode(themeMode: ThemeMode): Promise<void>
+  setLanguage(language: LanguagePreference): Promise<void>
   setPostProcessPreset(presetId: PostProcessPresetId): Promise<void>
   savePostProcessPreset(input: {
     id: string
@@ -175,6 +189,7 @@ const APP_RETRY_HISTORY_CHANNEL = 'app:retry-history'
 const APP_START_DICTATION_CHANNEL = IPC_CHANNELS.app.startDictation
 const APP_STOP_DICTATION_CHANNEL = IPC_CHANNELS.app.stopDictation
 const APP_SET_THEME_MODE_CHANNEL = IPC_CHANNELS.app.setThemeMode
+const APP_SET_LANGUAGE_CHANNEL = IPC_CHANNELS.app.setLanguage
 const APP_SET_POST_PROCESS_PRESET_CHANNEL = IPC_CHANNELS.app.setPostProcessPreset
 const APP_SAVE_POST_PROCESS_PRESET_CHANNEL = IPC_CHANNELS.app.savePostProcessPreset
 const APP_RESET_POST_PROCESS_PRESET_CHANNEL = IPC_CHANNELS.app.resetPostProcessPreset
@@ -254,6 +269,9 @@ const api: TiaApi = {
   },
   setThemeMode(themeMode) {
     return ipcRenderer.invoke(APP_SET_THEME_MODE_CHANNEL, themeMode)
+  },
+  setLanguage(language) {
+    return ipcRenderer.invoke(APP_SET_LANGUAGE_CHANNEL, language)
   },
   setPostProcessPreset(presetId) {
     return ipcRenderer.invoke(APP_SET_POST_PROCESS_PRESET_CHANNEL, presetId)
