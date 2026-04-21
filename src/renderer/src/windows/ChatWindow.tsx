@@ -29,7 +29,7 @@ export default function ChatWindow(): React.JSX.Element {
           {state.detail ??
             state.text ??
             (state.phase === 'thinking'
-              ? 'The ASR and cleanup pipeline is running.'
+              ? 'The ASR and PostProcess pipeline is running.'
               : 'Hold the push-to-talk key to start a new voice capture.')}
         </p>
       </div>

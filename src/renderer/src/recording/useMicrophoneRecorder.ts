@@ -65,76 +65,103 @@ export function useMicrophoneRecorder(input: {
     return true
   }, [setRecorderStatus])
 
-  const start = useCallback(async (): Promise<boolean> => {
-    if (statusRef.current !== 'idle' || recorderRef.current) {
-      return false
-    }
-
-    let liveStream: MediaStream | null = null
-
-    try {
-      setRecorderStatus('recording')
-      setError(null)
-      liveStream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      setStream(liveStream)
-
-      const recordingChunks: Blob[] = []
-      const recordingStartedAt = Date.now()
-
-      const recorder = mimeType ? new MediaRecorder(liveStream, { mimeType }) : new MediaRecorder(liveStream)
-      recorderRef.current = recorder
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          recordingChunks.push(event.data)
-        }
+  const start = useCallback(
+    async (deviceId?: string | null): Promise<boolean> => {
+      if (statusRef.current !== 'idle' || recorderRef.current) {
+        return false
       }
 
-      recorder.onerror = () => {
-        setRecorderStatus('error')
-        setError('Microphone recorder failed.')
-        cleanupStream(liveStream)
-        if (recorderRef.current === recorder) {
-          recorderRef.current = null
-        }
-      }
+      let liveStream: MediaStream | null = null
 
-      recorder.onstop = async () => {
+      try {
+        setRecorderStatus('recording')
+        setError(null)
         try {
-          const blob = new Blob(recordingChunks, { type: recorder.mimeType || mimeType || 'audio/webm' })
-          const buffer = new Uint8Array(await blob.arrayBuffer())
-
-          if (buffer.byteLength > 0) {
-            await input.onComplete({
-              mimeType: blob.type || 'audio/webm',
-              buffer,
-              durationMs: Date.now() - recordingStartedAt,
-              sizeBytes: buffer.byteLength
-            })
+          liveStream = await navigator.mediaDevices.getUserMedia(
+            deviceId
+              ? {
+                  audio: {
+                    deviceId: {
+                      exact: deviceId
+                    }
+                  }
+                }
+              : { audio: true }
+          )
+        } catch (error) {
+          if (!deviceId) {
+            throw error
           }
 
-          setRecorderStatus('idle')
-        } catch (submitError) {
+          liveStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        }
+        setStream(liveStream)
+
+        const recordingChunks: Blob[] = []
+        const recordingStartedAt = Date.now()
+
+        const recorder = mimeType
+          ? new MediaRecorder(liveStream, { mimeType })
+          : new MediaRecorder(liveStream)
+        recorderRef.current = recorder
+
+        recorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            recordingChunks.push(event.data)
+          }
+        }
+
+        recorder.onerror = () => {
           setRecorderStatus('error')
-          setError(submitError instanceof Error ? submitError.message : 'Failed to submit recording.')
-        } finally {
+          setError('Microphone recorder failed.')
           cleanupStream(liveStream)
           if (recorderRef.current === recorder) {
             recorderRef.current = null
           }
         }
-      }
 
-      recorder.start(120)
-      return true
-    } catch (startError) {
-      setRecorderStatus('error')
-      setError(startError instanceof Error ? startError.message : 'Microphone permission failed.')
-      recorderRef.current = null
-      cleanupStream(liveStream)
-      return false
-    }
-  }, [cleanupStream, input, mimeType, setRecorderStatus])
+        recorder.onstop = async () => {
+          try {
+            const blob = new Blob(recordingChunks, {
+              type: recorder.mimeType || mimeType || 'audio/webm'
+            })
+            const buffer = new Uint8Array(await blob.arrayBuffer())
+
+            if (buffer.byteLength > 0) {
+              await input.onComplete({
+                mimeType: blob.type || 'audio/webm',
+                buffer,
+                durationMs: Date.now() - recordingStartedAt,
+                sizeBytes: buffer.byteLength
+              })
+            }
+
+            setRecorderStatus('idle')
+          } catch (submitError) {
+            setRecorderStatus('error')
+            setError(
+              submitError instanceof Error ? submitError.message : 'Failed to submit recording.'
+            )
+          } finally {
+            cleanupStream(liveStream)
+            if (recorderRef.current === recorder) {
+              recorderRef.current = null
+            }
+          }
+        }
+
+        recorder.start(120)
+        return true
+      } catch (startError) {
+        setRecorderStatus('error')
+        setError(startError instanceof Error ? startError.message : 'Microphone permission failed.')
+        recorderRef.current = null
+        cleanupStream(liveStream)
+        return false
+      }
+    },
+    [cleanupStream, input, mimeType, setRecorderStatus]
+  )
 
   return {
     error,

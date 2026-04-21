@@ -8,11 +8,24 @@ import type {
 export type Unsubscribe = () => void
 
 const noopMainAppState = {
+  appInfo: {
+    name: 'TIA Voice',
+    version: '0.0.0'
+  },
   hotkeyHint: 'Hold the push-to-talk key',
   registeredHotkey: null,
   registeredHotkeyLabel: null,
+  selectedProvider: 'dashscope' as const,
+  microphone: {
+    selectedDeviceId: null,
+    selectedDeviceLabel: null
+  },
   providerLabels: { asr: 'qwen3-asr-flash', llm: 'qwen-plus' },
   dashscope: {
+    configured: false,
+    keyLabel: null
+  },
+  openai: {
     configured: false,
     keyLabel: null
   },
@@ -21,10 +34,32 @@ const noopMainAppState = {
     visible: true
   },
   themeMode: 'system' as const,
+  postProcessPreset: 'formal' as const,
+  postProcessPresets: [
+    {
+      id: 'formal',
+      name: 'Formal',
+      systemPrompt:
+        'Prefer polished punctuation, complete sentences, and a professional tone while preserving the speaker intent, wording, and meaning.',
+      builtIn: true
+    },
+    {
+      id: 'casual',
+      name: 'Casual',
+      systemPrompt:
+        'Prefer a conversational, relaxed tone with lighter punctuation and natural shorthand when it fits, while preserving the speaker intent, wording, and meaning.',
+      builtIn: true
+    }
+  ],
   voiceBackendStatus: {
     ready: false,
     label: 'DashScope key required',
     detail: 'Add your DashScope API key in onboarding or settings to start dictating.'
+  },
+  historySummary: {
+    totalCount: 0,
+    wordsSpoken: 0,
+    averageWpm: null
   },
   permissions: {
     hasMissing: true,
@@ -45,6 +80,15 @@ const noopMainAppState = {
       ctaLabel: 'Request Microphone Permission'
     }
   },
+  autoUpdate: {
+    status: 'unsupported' as const,
+    currentVersion: '0.0.0',
+    availableVersion: null,
+    releaseDate: null,
+    lastCheckedAt: null,
+    downloadProgressPercent: null,
+    message: 'Automatic updates are only available in packaged builds.'
+  },
   history: []
 }
 
@@ -56,19 +100,41 @@ const noopApi: TiaApi = {
   onAppState: () => () => undefined,
   getChatState: async () => ({ phase: 'idle' }),
   getMainAppState: async () => noopMainAppState,
+  getHistoryPage: async () => ({ items: [], totalCount: 0 }),
   getHistoryEntryDebug: async () => null,
   retryHistoryEntry: async () => undefined,
   startDictation: async () => undefined,
   stopDictation: async () => undefined,
   setThemeMode: async () => undefined,
+  setPostProcessPreset: async () => undefined,
+  savePostProcessPreset: async (input) => ({ ...input, builtIn: false }),
+  resetPostProcessPreset: async () => ({
+    id: 'formal',
+    name: 'Formal',
+    systemPrompt:
+      'Prefer polished punctuation, complete sentences, and a professional tone while preserving the speaker intent, wording, and meaning.',
+    builtIn: true
+  }),
+  createPostProcessPreset: async (input) => ({
+    id: 'preset-new',
+    name: input.name,
+    systemPrompt: input.systemPrompt,
+    builtIn: false
+  }),
+  setHotkey: async () => undefined,
+  setMicrophone: async () => undefined,
+  setProvider: async () => undefined,
   getProviderSetup: async () => ({ configured: false, keyLabel: null }),
   saveDashscopeApiKey: async () => ({ configured: true, keyLabel: 'Saved locally' }),
+  saveOpenAiApiKey: async () => ({ configured: true, keyLabel: 'Saved locally' }),
   completeOnboarding: async () => undefined,
   resetOnboarding: async () => undefined,
   checkAccessibilityPermission: async () => true,
   checkMicrophonePermission: async () => true,
   reportMicrophonePermissionGranted: async () => undefined,
   openPermissionSettings: async () => undefined,
+  checkForUpdates: async () => noopMainAppState.autoUpdate,
+  restartToUpdate: async () => undefined,
   showOnboardingWindow: async () => undefined,
   logDebug: () => undefined,
   getDebugLogPath: async () => ''
@@ -110,6 +176,12 @@ export function getMainAppState(): ReturnType<TiaApi['getMainAppState']> {
   return getApi().getMainAppState()
 }
 
+export function getHistoryPage(
+  input?: Parameters<TiaApi['getHistoryPage']>[0]
+): ReturnType<TiaApi['getHistoryPage']> {
+  return getApi().getHistoryPage(input)
+}
+
 export function getHistoryEntryDebug(
   entryId: Parameters<TiaApi['getHistoryEntryDebug']>[0]
 ): ReturnType<TiaApi['getHistoryEntryDebug']> {
@@ -138,6 +210,48 @@ export function setThemeMode(
   return getApi().setThemeMode(themeMode)
 }
 
+export function setPostProcessPreset(
+  presetId: Parameters<TiaApi['setPostProcessPreset']>[0]
+): ReturnType<TiaApi['setPostProcessPreset']> {
+  return getApi().setPostProcessPreset(presetId)
+}
+
+export function savePostProcessPreset(
+  input: Parameters<TiaApi['savePostProcessPreset']>[0]
+): ReturnType<TiaApi['savePostProcessPreset']> {
+  return getApi().savePostProcessPreset(input)
+}
+
+export function resetPostProcessPreset(
+  presetId: Parameters<TiaApi['resetPostProcessPreset']>[0]
+): ReturnType<TiaApi['resetPostProcessPreset']> {
+  return getApi().resetPostProcessPreset(presetId)
+}
+
+export function createPostProcessPreset(
+  input: Parameters<TiaApi['createPostProcessPreset']>[0]
+): ReturnType<TiaApi['createPostProcessPreset']> {
+  return getApi().createPostProcessPreset(input)
+}
+
+export function setHotkey(
+  hotkey: Parameters<TiaApi['setHotkey']>[0]
+): ReturnType<TiaApi['setHotkey']> {
+  return getApi().setHotkey(hotkey)
+}
+
+export function setMicrophone(
+  input: Parameters<TiaApi['setMicrophone']>[0]
+): ReturnType<TiaApi['setMicrophone']> {
+  return getApi().setMicrophone(input)
+}
+
+export function setProvider(
+  provider: Parameters<TiaApi['setProvider']>[0]
+): ReturnType<TiaApi['setProvider']> {
+  return getApi().setProvider(provider)
+}
+
 export function getProviderSetup(): ReturnType<TiaApi['getProviderSetup']> {
   return getApi().getProviderSetup()
 }
@@ -146,6 +260,12 @@ export function saveDashscopeApiKey(
   apiKey: Parameters<TiaApi['saveDashscopeApiKey']>[0]
 ): ReturnType<TiaApi['saveDashscopeApiKey']> {
   return getApi().saveDashscopeApiKey(apiKey)
+}
+
+export function saveOpenAiApiKey(
+  apiKey: Parameters<TiaApi['saveOpenAiApiKey']>[0]
+): ReturnType<TiaApi['saveOpenAiApiKey']> {
+  return getApi().saveOpenAiApiKey(apiKey)
 }
 
 export function completeOnboarding(): ReturnType<TiaApi['completeOnboarding']> {
@@ -178,6 +298,14 @@ export function openPermissionSettings(
   permission: Parameters<TiaApi['openPermissionSettings']>[0]
 ): ReturnType<TiaApi['openPermissionSettings']> {
   return getApi().openPermissionSettings(permission)
+}
+
+export function checkForUpdates(): ReturnType<TiaApi['checkForUpdates']> {
+  return getApi().checkForUpdates()
+}
+
+export function restartToUpdate(): ReturnType<TiaApi['restartToUpdate']> {
+  return getApi().restartToUpdate()
 }
 
 export function showOnboardingWindow(): ReturnType<TiaApi['showOnboardingWindow']> {

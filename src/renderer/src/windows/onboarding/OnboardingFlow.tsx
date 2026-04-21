@@ -343,7 +343,8 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
                 />
               </label>
               <p className="text-sm text-muted-foreground">
-                We store your key locally on this device and use it directly for ASR and cleanup.
+                We store your key locally on this device and use it directly for ASR and
+                PostProcess.
               </p>
               {dashscopeKeyLabel ? (
                 <p className="text-sm text-muted-foreground">{dashscopeKeyLabel}</p>

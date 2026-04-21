@@ -41,7 +41,8 @@ export function DictionaryRoute(props: DictionaryRouteProps): React.JSX.Element 
         <CardHeader>
           <CardTitle>Pronunciation dictionary</CardTitle>
           <CardDescription>
-            Teach the cleanup model how to normalize brand names, acronyms, and special phrases.
+            Teach the PostProcess model how to normalize brand names, acronyms, and special
+            phrases.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -72,7 +73,7 @@ export function DictionaryRoute(props: DictionaryRouteProps): React.JSX.Element 
               id="notes"
               value={noteDraft}
               onChange={(event) => onNoteDraftChange(event.target.value)}
-              placeholder="Add handling details that help LLM cleanup."
+              placeholder="Add handling details that help LLM PostProcess."
               rows={3}
             />
           </div>
@@ -87,7 +88,7 @@ export function DictionaryRoute(props: DictionaryRouteProps): React.JSX.Element 
         <CardHeader>
           <CardTitle>Current dictionary entries</CardTitle>
           <CardDescription>
-            These rules will be used to stabilize transcription cleanup output.
+            These rules will be used to stabilize transcription PostProcess output.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">

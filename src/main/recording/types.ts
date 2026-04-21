@@ -9,6 +9,7 @@ export type RecordingCommand =
   | {
       type: 'start'
       startedAt: number
+      deviceId?: string | null
     }
   | {
       type: 'stop'

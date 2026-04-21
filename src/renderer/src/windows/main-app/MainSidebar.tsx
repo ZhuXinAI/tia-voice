@@ -1,4 +1,5 @@
-import { AlertTriangle, BookText, Home, Settings2 } from 'lucide-react'
+import { useState } from 'react'
+import { AlertTriangle, BookText, Download, Home, Settings2, Sparkles } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 
 import { Button } from '@renderer/components/ui/button'
@@ -15,19 +16,56 @@ import {
   SidebarMenuItem
 } from '@renderer/components/ui/sidebar'
 
-import type { DashscopeSetupState, SettingsSection } from './types'
+import type { DashscopeSetupState, MainAppState, SettingsSection } from './types'
 import { TrayIcon } from './TrayIcon'
 
 type MainSidebarProps = {
   dashscope: DashscopeSetupState
-  permissions: import('./types').MainAppState['permissions']
+  openai: DashscopeSetupState
+  selectedProvider: MainAppState['selectedProvider']
+  postProcessPreset: MainAppState['postProcessPreset']
+  postProcessPresets: MainAppState['postProcessPresets']
+  permissions: MainAppState['permissions']
+  autoUpdate: MainAppState['autoUpdate']
   onOpenSettings: (section?: SettingsSection) => void
+  onRestartToUpdate: () => Promise<void>
 }
 
 export function MainSidebar(props: MainSidebarProps): React.JSX.Element {
-  const { dashscope, permissions, onOpenSettings } = props
+  const {
+    dashscope,
+    openai,
+    selectedProvider,
+    postProcessPreset,
+    postProcessPresets,
+    permissions,
+    autoUpdate,
+    onOpenSettings,
+    onRestartToUpdate
+  } = props
   const location = useLocation()
+  const [restartPending, setRestartPending] = useState(false)
+  const isHomeRoute = location.pathname === '/'
   const isDictionaryRoute = location.pathname.startsWith('/dictionary')
+  const isPresetsRoute = location.pathname.startsWith('/presets')
+  const activeProvider = selectedProvider === 'openai' ? openai : dashscope
+  const activeProviderLabel = selectedProvider === 'openai' ? 'OpenAI' : 'DashScope'
+  const hasDownloadedUpdate = autoUpdate.status === 'update-downloaded'
+  const activePresetLabel =
+    postProcessPresets.find((preset) => preset.id === postProcessPreset)?.name ?? 'Formal'
+
+  const handleRestartToUpdate = async (): Promise<void> => {
+    if (!hasDownloadedUpdate || restartPending) {
+      return
+    }
+
+    setRestartPending(true)
+    try {
+      await onRestartToUpdate()
+    } finally {
+      setRestartPending(false)
+    }
+  }
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border/60">
@@ -36,9 +74,26 @@ export function MainSidebar(props: MainSidebarProps): React.JSX.Element {
           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/20 text-primary">
             <TrayIcon className="h-4 w-4" />
           </div>
-          <div className="group-data-[collapsible=icon]:hidden">
-            <p className="text-sm font-semibold">TIA Voice</p>
-            <p className="text-xs text-muted-foreground">Desktop assistant</p>
+          <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold">TIA Voice</p>
+                <p className="truncate text-xs text-muted-foreground">Desktop assistant</p>
+              </div>
+
+              {hasDownloadedUpdate ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={restartPending}
+                  className="h-7 gap-1 rounded-full px-2.5 text-[11px]"
+                  onClick={() => void handleRestartToUpdate()}
+                >
+                  <Download className="h-3 w-3" />
+                  {restartPending ? 'Restarting…' : 'Update'}
+                </Button>
+              ) : null}
+            </div>
           </div>
         </div>
       </SidebarHeader>
@@ -49,7 +104,7 @@ export function MainSidebar(props: MainSidebarProps): React.JSX.Element {
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={!isDictionaryRoute} tooltip="Home">
+                <SidebarMenuButton asChild isActive={isHomeRoute} tooltip="Home">
                   <Link to="/">
                     <Home />
                     <span>Home</span>
@@ -61,6 +116,14 @@ export function MainSidebar(props: MainSidebarProps): React.JSX.Element {
                   <Link to="/dictionary">
                     <BookText />
                     <span>Dictionary</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={isPresetsRoute} tooltip="Presets">
+                  <Link to="/presets">
+                    <Sparkles />
+                    <span>Presets</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -110,17 +173,21 @@ export function MainSidebar(props: MainSidebarProps): React.JSX.Element {
           ) : (
             <>
               <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Provider</p>
-              <p className="mt-2 text-sm font-medium">DashScope</p>
+              <p className="mt-2 text-sm font-medium">{activeProviderLabel}</p>
               <p className="text-xs text-muted-foreground">
-                {dashscope.keyLabel ?? 'No API key saved yet'}
+                {activeProvider.keyLabel ?? 'No API key saved yet'}
               </p>
+              <div className="mt-3 flex items-center justify-between rounded-lg border border-sidebar-border/70 bg-background/60 px-3 py-2 text-xs">
+                <span className="text-muted-foreground">PostProcess preset</span>
+                <span className="font-medium text-foreground">{activePresetLabel}</span>
+              </div>
               <Button
                 className="mt-3 w-full"
                 variant="outline"
                 onClick={() => onOpenSettings('providers')}
                 type="button"
               >
-                {dashscope.configured ? 'Manage key' : 'Add key'}
+                {activeProvider.configured ? 'Manage key' : 'Add key'}
               </Button>
             </>
           )}

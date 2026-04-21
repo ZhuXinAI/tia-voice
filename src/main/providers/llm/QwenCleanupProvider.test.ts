@@ -14,6 +14,13 @@ describe('createQwenCleanupProvider', () => {
     const provider = createQwenCleanupProvider({
       apiKey: 'test-key',
       baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      postProcessPreset: {
+        id: 'casual',
+        name: 'Casual',
+        builtIn: true,
+        systemPrompt:
+          'Prefer a conversational, relaxed tone with lighter punctuation and natural shorthand when it fits, while preserving the speaker intent, wording, and meaning.'
+      },
       fetcher: fetcher as unknown as typeof fetch
     })
 
@@ -26,9 +33,13 @@ describe('createQwenCleanupProvider', () => {
     expect(result.text).toBe('Next week, my long-awaited moment finally arrives.')
     const [, request] = fetcher.mock.calls[0] ?? []
     const payload = JSON.parse((request as { body: string }).body)
+    const systemMessage = payload.messages[0].content as string
     const userMessage = payload.messages[1].content as string
 
     expect(payload.model).toBe('qwen-plus')
+    expect(systemMessage).toContain('Preset prompt:')
+    expect(systemMessage).toContain('Prefer a conversational, relaxed tone')
+    expect(userMessage).toContain('Remaining context:')
     expect(userMessage).toContain('"selectedText": "Next week my time is coming"')
   })
 

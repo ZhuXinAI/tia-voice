@@ -2,7 +2,26 @@ import type { TriggerKey } from './env'
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
-import { THEME_MODES, type ThemeMode } from '../ipc/channels'
+import {
+  THEME_MODES,
+  type PostProcessPresetId,
+  type ThemeMode
+} from '../ipc/channels'
+import {
+  DEFAULT_POST_PROCESS_PRESET_ID,
+  DEFAULT_POST_PROCESS_PRESETS,
+  getDefaultPostProcessPreset,
+  normalizePostProcessPresetCollection,
+  resolveSelectedPostProcessPreset,
+  type PostProcessPresetRecord
+} from '../providers/llm/postProcessPrompts'
+
+export type ProviderKind = 'dashscope' | 'openai'
+
+export type MicrophonePreference = {
+  deviceId: string | null
+  label: string | null
+}
 
 export type HistoryEntry = {
   id: string
@@ -25,24 +44,56 @@ export type OnboardingState = {
 
 export type AppSettings = {
   hotkey: TriggerKey
+  provider: ProviderKind
+  microphone: MicrophonePreference
   themeMode: ThemeMode
+  postProcessPreset: PostProcessPresetId
+  postProcessPresets: PostProcessPresetRecord[]
   providers: {
     asr: string
     llm: string
   }
   dashscopeApiKey: string | null
+  openaiApiKey: string | null
   history: HistoryEntry[]
   onboarding: OnboardingState
 }
 
 export type SettingsStore = {
   get(): AppSettings
+  setHotkey(hotkey: TriggerKey): void
+  getProvider(): ProviderKind
+  setProvider(provider: ProviderKind): void
+  getMicrophone(): MicrophonePreference
+  setMicrophone(preference: MicrophonePreference): void
   appendHistory(entry: HistoryEntry): void
+  getHistoryPage(input?: { offset?: number; limit?: number }): {
+    items: HistoryEntry[]
+    totalCount: number
+  }
   setThemeMode(themeMode: ThemeMode): void
+  getPostProcessPreset(): PostProcessPresetId
+  getPostProcessPresets(): PostProcessPresetRecord[]
+  getSelectedPostProcessPreset(): PostProcessPresetRecord
+  setPostProcessPreset(presetId: PostProcessPresetId): void
+  savePostProcessPreset(input: {
+    id: string
+    name: string
+    systemPrompt: string
+  }): PostProcessPresetRecord
+  resetPostProcessPreset(presetId: string): PostProcessPresetRecord
+  createPostProcessPreset(input: {
+    name: string
+    systemPrompt: string
+  }): PostProcessPresetRecord
   hasDashscopeApiKey(): boolean
   getDashscopeApiKey(): string | null
   getDashscopeKeyLabel(): string | null
   setDashscopeApiKey(apiKey: string): void
+  hasOpenAiApiKey(): boolean
+  getOpenAiApiKey(): string | null
+  getOpenAiKeyLabel(): string | null
+  setOpenAiApiKey(apiKey: string): void
   isOnboardingComplete(): boolean
   markOnboardingComplete(): void
   clearOnboardingCompletion(): void
@@ -67,12 +118,17 @@ export type SettingsStore = {
 
 type PersistedSettings = {
   hotkey: TriggerKey
+  provider?: ProviderKind
+  microphone?: Partial<MicrophonePreference>
   themeMode: ThemeMode
+  postProcessPreset?: PostProcessPresetId
+  postProcessPresets?: PostProcessPresetRecord[]
   providers: {
     asr: string
     llm: string
   }
   dashscopeApiKey?: string | null
+  openaiApiKey?: string | null
   history: HistoryEntry[]
   onboarding?: Partial<OnboardingState>
 }
@@ -80,6 +136,18 @@ type PersistedSettings = {
 const SETTINGS_FILE_NAME = 'settings.json'
 const AUDIO_HISTORY_DIR_NAME = 'history-audio'
 const MAX_HISTORY_ITEMS = 100
+const DEFAULT_HISTORY_PAGE_SIZE = 20
+
+const PROVIDER_MODELS: Record<ProviderKind, AppSettings['providers']> = {
+  dashscope: {
+    asr: 'qwen3-asr-flash',
+    llm: 'qwen-plus'
+  },
+  openai: {
+    asr: 'gpt-4o-mini-transcribe',
+    llm: 'gpt-5-mini'
+  }
+}
 
 function ensureDirectory(path: string): void {
   mkdirSync(path, { recursive: true })
@@ -153,6 +221,40 @@ function normalizeString(value: unknown): string | null {
   return trimmed === '' ? null : trimmed
 }
 
+function normalizeRequiredString(value: unknown, fallback: string): string {
+  const normalized = normalizeString(value)
+  return normalized ?? fallback
+}
+
+function normalizeProvider(
+  value: unknown,
+  legacyProviders?: Partial<PersistedSettings['providers']>
+): ProviderKind {
+  if (value === 'openai' || value === 'dashscope') {
+    return value
+  }
+
+  if (
+    legacyProviders?.asr === PROVIDER_MODELS.openai.asr ||
+    legacyProviders?.llm === PROVIDER_MODELS.openai.llm
+  ) {
+    return 'openai'
+  }
+
+  return 'dashscope'
+}
+
+function getProviderModels(provider: ProviderKind): AppSettings['providers'] {
+  return { ...PROVIDER_MODELS[provider] }
+}
+
+function normalizeMicrophonePreference(value: unknown): MicrophonePreference {
+  return {
+    deviceId: normalizeString((value as MicrophonePreference | undefined)?.deviceId),
+    label: normalizeString((value as MicrophonePreference | undefined)?.label)
+  }
+}
+
 function normalizeOnboardingState(value: unknown): OnboardingState {
   const legacyCompletedUserIds = Array.isArray(
     (value as { completedUserIds?: unknown } | undefined)?.completedUserIds
@@ -209,12 +311,17 @@ export function createSettingsStore(
 
   const defaults: AppSettings = {
     hotkey: defaultHotkey,
-    themeMode: 'system',
-    providers: {
-      asr: 'qwen3-asr-flash',
-      llm: 'qwen-plus'
+    provider: 'dashscope',
+    microphone: {
+      deviceId: null,
+      label: null
     },
+    themeMode: 'system',
+    postProcessPreset: DEFAULT_POST_PROCESS_PRESET_ID,
+    postProcessPresets: DEFAULT_POST_PROCESS_PRESETS.map((preset) => ({ ...preset })),
+    providers: getProviderModels('dashscope'),
     dashscopeApiKey: null,
+    openaiApiKey: null,
     history: [],
     onboarding: {
       completed: false
@@ -229,27 +336,32 @@ export function createSettingsStore(
     try {
       const raw = readFileSync(settingsPath, 'utf8')
       const parsed = JSON.parse(raw) as Partial<PersistedSettings>
+      const provider = normalizeProvider(parsed.provider, parsed.providers)
       const history = Array.isArray(parsed.history)
         ? parsed.history.map((item) => normalizeHistoryEntry(item))
         : []
+      const postProcessPresets = normalizePostProcessPresetCollection(parsed.postProcessPresets)
+      const selectedPostProcessPreset = resolveSelectedPostProcessPreset({
+        selectedPresetId: normalizeRequiredString(
+          parsed.postProcessPreset,
+          DEFAULT_POST_PROCESS_PRESET_ID
+        ),
+        presets: postProcessPresets
+      })
 
       return {
         hotkey:
           parsed.hotkey === 'AltRight' || parsed.hotkey === 'MetaRight'
             ? parsed.hotkey
             : defaultHotkey,
+        provider,
+        microphone: normalizeMicrophonePreference(parsed.microphone),
         themeMode: normalizeThemeMode(parsed.themeMode),
-        providers: {
-          asr:
-            typeof parsed.providers?.asr === 'string' && parsed.providers.asr.trim() !== ''
-              ? parsed.providers.asr
-              : defaults.providers.asr,
-          llm:
-            typeof parsed.providers?.llm === 'string' && parsed.providers.llm.trim() !== ''
-              ? parsed.providers.llm
-              : defaults.providers.llm
-        },
+        postProcessPreset: selectedPostProcessPreset.id,
+        postProcessPresets,
+        providers: getProviderModels(provider),
         dashscopeApiKey: normalizeString(parsed.dashscopeApiKey),
+        openaiApiKey: normalizeString(parsed.openaiApiKey),
         history,
         onboarding: normalizeOnboardingState(parsed.onboarding)
       }
@@ -265,12 +377,17 @@ export function createSettingsStore(
   function persistState(): void {
     const payload: PersistedSettings = {
       hotkey: state.hotkey,
-      themeMode: state.themeMode,
-      providers: {
-        asr: state.providers.asr,
-        llm: state.providers.llm
+      provider: state.provider,
+      microphone: {
+        deviceId: state.microphone.deviceId,
+        label: state.microphone.label
       },
+      themeMode: state.themeMode,
+      postProcessPreset: state.postProcessPreset,
+      postProcessPresets: state.postProcessPresets.map((preset) => ({ ...preset })),
+      providers: getProviderModels(state.provider),
       dashscopeApiKey: state.dashscopeApiKey,
+      openaiApiKey: state.openaiApiKey,
       history: state.history,
       onboarding: {
         completed: state.onboarding.completed
@@ -284,8 +401,12 @@ export function createSettingsStore(
     get(): AppSettings {
       return {
         ...state,
-        providers: { ...state.providers },
+        providers: getProviderModels(state.provider),
+        microphone: { ...state.microphone },
+        postProcessPreset: state.postProcessPreset,
+        postProcessPresets: state.postProcessPresets.map((preset) => ({ ...preset })),
         dashscopeApiKey: state.dashscopeApiKey,
+        openaiApiKey: state.openaiApiKey,
         history: state.history.map((item) => ({
           ...item,
           audio: item.audio ? { ...item.audio } : undefined
@@ -295,10 +416,68 @@ export function createSettingsStore(
         }
       }
     },
+    setHotkey(hotkey: TriggerKey): void {
+      if (state.hotkey === hotkey) {
+        return
+      }
+
+      state.hotkey = hotkey
+      persistState()
+    },
+    getProvider(): ProviderKind {
+      return state.provider
+    },
+    setProvider(provider: ProviderKind): void {
+      if (state.provider === provider) {
+        return
+      }
+
+      state.provider = provider
+      state.providers = getProviderModels(provider)
+      persistState()
+    },
+    getMicrophone(): MicrophonePreference {
+      return {
+        ...state.microphone
+      }
+    },
+    setMicrophone(preference: MicrophonePreference): void {
+      const nextPreference = normalizeMicrophonePreference(preference)
+
+      if (
+        state.microphone.deviceId === nextPreference.deviceId &&
+        state.microphone.label === nextPreference.label
+      ) {
+        return
+      }
+
+      state.microphone = nextPreference
+      persistState()
+    },
     appendHistory(entry: HistoryEntry): void {
       state.history.unshift(normalizeHistoryEntry(entry))
       state.history = trimHistoryWithCleanup(state.history, audioHistoryDirPath)
       persistState()
+    },
+    getHistoryPage(input = {}): { items: HistoryEntry[]; totalCount: number } {
+      const offset =
+        typeof input.offset === 'number' && Number.isFinite(input.offset) && input.offset > 0
+          ? Math.floor(input.offset)
+          : 0
+      const limit =
+        typeof input.limit === 'number' && Number.isFinite(input.limit) && input.limit > 0
+          ? Math.floor(input.limit)
+          : DEFAULT_HISTORY_PAGE_SIZE
+      const sortedHistory = [...state.history].sort((a, b) => b.createdAt - a.createdAt)
+      const items = sortedHistory.slice(offset, offset + limit).map((item) => ({
+        ...item,
+        audio: item.audio ? { ...item.audio } : undefined
+      }))
+
+      return {
+        items,
+        totalCount: sortedHistory.length
+      }
     },
     setThemeMode(themeMode: ThemeMode): void {
       const normalized = normalizeThemeMode(themeMode)
@@ -308,6 +487,82 @@ export function createSettingsStore(
 
       state.themeMode = normalized
       persistState()
+    },
+    getPostProcessPreset(): PostProcessPresetId {
+      return state.postProcessPreset
+    },
+    getPostProcessPresets(): PostProcessPresetRecord[] {
+      return state.postProcessPresets.map((preset) => ({ ...preset }))
+    },
+    getSelectedPostProcessPreset(): PostProcessPresetRecord {
+      return {
+        ...resolveSelectedPostProcessPreset({
+          selectedPresetId: state.postProcessPreset,
+          presets: state.postProcessPresets
+        })
+      }
+    },
+    setPostProcessPreset(presetId: PostProcessPresetId): void {
+      const nextPreset = resolveSelectedPostProcessPreset({
+        selectedPresetId: normalizeRequiredString(presetId, DEFAULT_POST_PROCESS_PRESET_ID),
+        presets: state.postProcessPresets
+      })
+      if (state.postProcessPreset === nextPreset.id) {
+        return
+      }
+
+      state.postProcessPreset = nextPreset.id
+      persistState()
+    },
+    savePostProcessPreset(input): PostProcessPresetRecord {
+      const presetIndex = state.postProcessPresets.findIndex((preset) => preset.id === input.id)
+      if (presetIndex < 0) {
+        throw new Error('Post-process preset not found.')
+      }
+
+      const previousPreset = state.postProcessPresets[presetIndex]
+      const nextPreset: PostProcessPresetRecord = {
+        ...previousPreset,
+        name: normalizeRequiredString(input.name, previousPreset.name),
+        systemPrompt: normalizeRequiredString(input.systemPrompt, previousPreset.systemPrompt)
+      }
+
+      state.postProcessPresets[presetIndex] = nextPreset
+      persistState()
+      return { ...nextPreset }
+    },
+    resetPostProcessPreset(presetId): PostProcessPresetRecord {
+      const presetIndex = state.postProcessPresets.findIndex((preset) => preset.id === presetId)
+      if (presetIndex < 0) {
+        throw new Error('Post-process preset not found.')
+      }
+
+      const defaultPreset = getDefaultPostProcessPreset(presetId)
+      if (!defaultPreset) {
+        throw new Error('Only built-in presets can be reset.')
+      }
+
+      state.postProcessPresets[presetIndex] = defaultPreset
+      persistState()
+      return { ...defaultPreset }
+    },
+    createPostProcessPreset(input): PostProcessPresetRecord {
+      const name = normalizeRequiredString(input.name, 'New preset')
+      const systemPrompt = normalizeRequiredString(
+        input.systemPrompt,
+        'Preserve meaning while following these instructions.'
+      )
+      const nextPreset: PostProcessPresetRecord = {
+        id: crypto.randomUUID(),
+        name,
+        systemPrompt,
+        builtIn: false
+      }
+
+      state.postProcessPresets = [...state.postProcessPresets, nextPreset]
+      state.postProcessPreset = nextPreset.id
+      persistState()
+      return { ...nextPreset }
     },
     hasDashscopeApiKey(): boolean {
       return Boolean(state.dashscopeApiKey)
@@ -329,6 +584,28 @@ export function createSettingsStore(
       }
 
       state.dashscopeApiKey = normalizedApiKey
+      persistState()
+    },
+    hasOpenAiApiKey(): boolean {
+      return Boolean(state.openaiApiKey)
+    },
+    getOpenAiApiKey(): string | null {
+      return state.openaiApiKey
+    },
+    getOpenAiKeyLabel(): string | null {
+      return maskApiKey(state.openaiApiKey)
+    },
+    setOpenAiApiKey(apiKey: string): void {
+      const normalizedApiKey = normalizeString(apiKey)
+      if (!normalizedApiKey) {
+        throw new Error('OpenAI API key is required.')
+      }
+
+      if (state.openaiApiKey === normalizedApiKey) {
+        return
+      }
+
+      state.openaiApiKey = normalizedApiKey
       persistState()
     },
     isOnboardingComplete(): boolean {

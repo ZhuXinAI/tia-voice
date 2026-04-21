@@ -11,6 +11,8 @@ describe('createSettingsStore', () => {
     const store = createSettingsStore('MetaRight', root)
     expect(store.get().providers.asr).toBe('qwen3-asr-flash')
     expect(store.get().themeMode).toBe('system')
+    expect(store.getPostProcessPreset()).toBe('formal')
+    expect(store.getPostProcessPresets()).toHaveLength(2)
     expect(store.hasDashscopeApiKey()).toBe(false)
 
     store.setThemeMode('dark')
@@ -40,6 +42,78 @@ describe('createSettingsStore', () => {
     const secondStore = createSettingsStore('MetaRight', root)
     expect(secondStore.isOnboardingComplete()).toBe(true)
     expect(secondStore.hasDashscopeApiKey()).toBe(false)
+
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('persists provider, microphone, preset, and OpenAI key settings', () => {
+    const root = mkdtempSync(join(tmpdir(), 'tia-voice-settings-provider-'))
+    const firstStore = createSettingsStore('MetaRight', root)
+
+    firstStore.setProvider('openai')
+    firstStore.setPostProcessPreset('casual')
+    firstStore.setOpenAiApiKey('openai-test-key')
+    firstStore.setHotkey('AltRight')
+    firstStore.setMicrophone({
+      deviceId: 'usb-mic-1',
+      label: 'USB Microphone'
+    })
+
+    const secondStore = createSettingsStore('MetaRight', root)
+    expect(secondStore.getProvider()).toBe('openai')
+    expect(secondStore.hasOpenAiApiKey()).toBe(true)
+    expect(secondStore.get().providers).toEqual({
+      asr: 'gpt-4o-mini-transcribe',
+      llm: 'gpt-5-mini'
+    })
+    expect(secondStore.getPostProcessPreset()).toBe('casual')
+    expect(secondStore.get().hotkey).toBe('AltRight')
+    expect(secondStore.getMicrophone()).toEqual({
+      deviceId: 'usb-mic-1',
+      label: 'USB Microphone'
+    })
+
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('allows editing, resetting, and adding post-process presets', () => {
+    const root = mkdtempSync(join(tmpdir(), 'tia-voice-settings-presets-'))
+    const firstStore = createSettingsStore('MetaRight', root)
+
+    const formal = firstStore.getSelectedPostProcessPreset()
+    expect(formal.id).toBe('formal')
+
+    firstStore.savePostProcessPreset({
+      id: 'formal',
+      name: 'Formal',
+      systemPrompt: 'Keep the wording polished and concise.'
+    })
+    expect(firstStore.getSelectedPostProcessPreset().systemPrompt).toBe(
+      'Keep the wording polished and concise.'
+    )
+
+    firstStore.resetPostProcessPreset('formal')
+    expect(firstStore.getSelectedPostProcessPreset().systemPrompt).toBe(
+      'Prefer polished punctuation, complete sentences, and a professional tone while preserving the speaker intent, wording, and meaning.'
+    )
+
+    const customPreset = firstStore.createPostProcessPreset({
+      name: 'Support',
+      systemPrompt: 'Sound warm, clear, and customer-friendly.'
+    })
+
+    expect(firstStore.getPostProcessPreset()).toBe(customPreset.id)
+    expect(firstStore.getSelectedPostProcessPreset().systemPrompt).toBe(
+      'Sound warm, clear, and customer-friendly.'
+    )
+
+    const secondStore = createSettingsStore('MetaRight', root)
+    expect(secondStore.getPostProcessPresets().map((preset) => preset.name)).toContain('Support')
+    expect(
+      secondStore.getPostProcessPresets().find((preset) => preset.id === 'formal')?.systemPrompt
+    ).toBe(
+      'Prefer polished punctuation, complete sentences, and a professional tone while preserving the speaker intent, wording, and meaning.'
+    )
 
     rmSync(root, { recursive: true, force: true })
   })

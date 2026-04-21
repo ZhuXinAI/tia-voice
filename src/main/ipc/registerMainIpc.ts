@@ -1,12 +1,20 @@
 import { ipcMain } from 'electron'
 
-import { IPC_CHANNELS, THEME_MODES, type ThemeMode } from './channels'
+import {
+  IPC_CHANNELS,
+  type PostProcessPresetId,
+  THEME_MODES,
+  type ProviderKind,
+  type ThemeMode,
+  type TriggerKey
+} from './channels'
 import type { RecordingArtifact } from '../recording/types'
 import { getDebugLogPath, logDebug } from '../logging/debugLogger'
 
 export function registerMainIpc(input: {
   getAppState: () => unknown
   getChatState: () => unknown
+  getHistoryPage: (input?: { offset?: number; limit?: number }) => unknown
   getHistoryEntryDebug: (entryId: string) => Promise<unknown>
   finishRecording: (artifact: RecordingArtifact) => Promise<void>
   reportRecordingFailure: (detail: string) => void
@@ -14,18 +22,33 @@ export function registerMainIpc(input: {
   startDictation: (source: 'global' | 'onboarding') => Promise<void>
   stopDictation: (source: 'global' | 'onboarding') => Promise<void>
   setThemeMode: (themeMode: ThemeMode) => void
+  setPostProcessPreset: (presetId: PostProcessPresetId) => void
+  savePostProcessPreset: (input: {
+    id: string
+    name: string
+    systemPrompt: string
+  }) => unknown
+  resetPostProcessPreset: (presetId: string) => unknown
+  createPostProcessPreset: (input: { name: string; systemPrompt: string }) => unknown
+  setHotkey: (hotkey: TriggerKey) => void
+  setMicrophone: (input: { deviceId: string | null; label: string | null }) => void
+  setProvider: (provider: ProviderKind) => void
   getProviderSetup: () => { configured: boolean; keyLabel: string | null }
   saveDashscopeApiKey: (apiKey: string) => { configured: boolean; keyLabel: string | null }
+  saveOpenAiApiKey: (apiKey: string) => { configured: boolean; keyLabel: string | null }
   completeOnboarding: () => void
   checkAccessibilityPermission: (prompt: boolean) => boolean
   checkMicrophonePermission: (prompt: boolean) => Promise<boolean>
   reportMicrophonePermissionGranted: () => void
   openPermissionSettings: (permission: 'accessibility' | 'microphone') => Promise<void>
+  checkForUpdates: () => Promise<unknown>
+  restartToUpdate: () => Promise<void>
   resetOnboarding: () => void
   showOnboardingWindow: () => void
 }): void {
   ipcMain.removeHandler(IPC_CHANNELS.app.getState)
   ipcMain.removeHandler(IPC_CHANNELS.chat.getState)
+  ipcMain.removeHandler(IPC_CHANNELS.app.getHistoryPage)
   ipcMain.removeHandler(IPC_CHANNELS.app.getHistoryEntryDebug)
   ipcMain.removeHandler(IPC_CHANNELS.recording.complete)
   ipcMain.removeHandler(IPC_CHANNELS.recording.failed)
@@ -33,13 +56,23 @@ export function registerMainIpc(input: {
   ipcMain.removeHandler(IPC_CHANNELS.app.startDictation)
   ipcMain.removeHandler(IPC_CHANNELS.app.stopDictation)
   ipcMain.removeHandler(IPC_CHANNELS.app.setThemeMode)
+  ipcMain.removeHandler(IPC_CHANNELS.app.setPostProcessPreset)
+  ipcMain.removeHandler(IPC_CHANNELS.app.savePostProcessPreset)
+  ipcMain.removeHandler(IPC_CHANNELS.app.resetPostProcessPreset)
+  ipcMain.removeHandler(IPC_CHANNELS.app.createPostProcessPreset)
+  ipcMain.removeHandler(IPC_CHANNELS.app.setHotkey)
+  ipcMain.removeHandler(IPC_CHANNELS.app.setMicrophone)
+  ipcMain.removeHandler(IPC_CHANNELS.app.setProvider)
   ipcMain.removeHandler(IPC_CHANNELS.app.getProviderSetup)
   ipcMain.removeHandler(IPC_CHANNELS.app.saveDashscopeApiKey)
+  ipcMain.removeHandler(IPC_CHANNELS.app.saveOpenAiApiKey)
   ipcMain.removeHandler(IPC_CHANNELS.app.completeOnboarding)
   ipcMain.removeHandler(IPC_CHANNELS.app.checkAccessibilityPermission)
   ipcMain.removeHandler(IPC_CHANNELS.app.checkMicrophonePermission)
   ipcMain.removeHandler(IPC_CHANNELS.app.reportMicrophonePermissionGranted)
   ipcMain.removeHandler(IPC_CHANNELS.app.openPermissionSettings)
+  ipcMain.removeHandler(IPC_CHANNELS.app.checkForUpdates)
+  ipcMain.removeHandler(IPC_CHANNELS.app.restartToUpdate)
   ipcMain.removeHandler(IPC_CHANNELS.app.resetOnboarding)
   ipcMain.removeHandler(IPC_CHANNELS.app.showOnboardingWindow)
   ipcMain.removeHandler(IPC_CHANNELS.debug.getLogPath)
@@ -59,6 +92,21 @@ export function registerMainIpc(input: {
 
   ipcMain.handle(IPC_CHANNELS.app.getState, () => input.getAppState())
   ipcMain.handle(IPC_CHANNELS.chat.getState, () => input.getChatState())
+  ipcMain.handle(
+    IPC_CHANNELS.app.getHistoryPage,
+    (_event, pageInput: { offset?: unknown; limit?: unknown } | undefined) => {
+      return input.getHistoryPage({
+        offset:
+          typeof pageInput?.offset === 'number' && Number.isFinite(pageInput.offset)
+            ? pageInput.offset
+            : undefined,
+        limit:
+          typeof pageInput?.limit === 'number' && Number.isFinite(pageInput.limit)
+            ? pageInput.limit
+            : undefined
+      })
+    }
+  )
   ipcMain.handle(IPC_CHANNELS.app.getHistoryEntryDebug, async (_event, entryId: unknown) => {
     if (typeof entryId !== 'string' || entryId.trim() === '') {
       return null
@@ -92,6 +140,78 @@ export function registerMainIpc(input: {
 
     input.setThemeMode(themeMode as ThemeMode)
   })
+  ipcMain.handle(IPC_CHANNELS.app.setPostProcessPreset, (_event, presetId: unknown) => {
+    if (typeof presetId !== 'string' || presetId.trim() === '') {
+      return
+    }
+
+    input.setPostProcessPreset(presetId as PostProcessPresetId)
+  })
+  ipcMain.handle(
+    IPC_CHANNELS.app.savePostProcessPreset,
+    (_event, value: { id?: unknown; name?: unknown; systemPrompt?: unknown } | undefined) => {
+      if (
+        typeof value?.id !== 'string' ||
+        value.id.trim() === '' ||
+        typeof value?.name !== 'string' ||
+        typeof value?.systemPrompt !== 'string'
+      ) {
+        throw new Error('Valid post-process preset fields are required.')
+      }
+
+      return input.savePostProcessPreset({
+        id: value.id,
+        name: value.name,
+        systemPrompt: value.systemPrompt
+      })
+    }
+  )
+  ipcMain.handle(IPC_CHANNELS.app.resetPostProcessPreset, (_event, presetId: unknown) => {
+    if (typeof presetId !== 'string' || presetId.trim() === '') {
+      throw new Error('A valid post-process preset id is required.')
+    }
+
+    return input.resetPostProcessPreset(presetId)
+  })
+  ipcMain.handle(
+    IPC_CHANNELS.app.createPostProcessPreset,
+    (_event, value: { name?: unknown; systemPrompt?: unknown } | undefined) => {
+      if (typeof value?.name !== 'string' || typeof value?.systemPrompt !== 'string') {
+        throw new Error('Valid post-process preset fields are required.')
+      }
+
+      return input.createPostProcessPreset({
+        name: value.name,
+        systemPrompt: value.systemPrompt
+      })
+    }
+  )
+  ipcMain.handle(IPC_CHANNELS.app.setHotkey, (_event, hotkey: unknown) => {
+    if (hotkey !== 'MetaRight' && hotkey !== 'AltRight') {
+      return
+    }
+
+    input.setHotkey(hotkey)
+  })
+  ipcMain.handle(
+    IPC_CHANNELS.app.setMicrophone,
+    (_event, value: { deviceId?: unknown; label?: unknown } | undefined) => {
+      input.setMicrophone({
+        deviceId:
+          typeof value?.deviceId === 'string' && value.deviceId.trim() !== ''
+            ? value.deviceId
+            : null,
+        label: typeof value?.label === 'string' && value.label.trim() !== '' ? value.label : null
+      })
+    }
+  )
+  ipcMain.handle(IPC_CHANNELS.app.setProvider, (_event, provider: unknown) => {
+    if (provider !== 'dashscope' && provider !== 'openai') {
+      return
+    }
+
+    input.setProvider(provider)
+  })
   ipcMain.handle(IPC_CHANNELS.app.getProviderSetup, () => {
     return input.getProviderSetup()
   })
@@ -101,6 +221,13 @@ export function registerMainIpc(input: {
     }
 
     return input.saveDashscopeApiKey(apiKey)
+  })
+  ipcMain.handle(IPC_CHANNELS.app.saveOpenAiApiKey, (_event, apiKey: unknown) => {
+    if (typeof apiKey !== 'string') {
+      throw new Error('OpenAI API key is required.')
+    }
+
+    return input.saveOpenAiApiKey(apiKey)
   })
   ipcMain.handle(IPC_CHANNELS.app.completeOnboarding, () => {
     input.completeOnboarding()
@@ -120,6 +247,12 @@ export function registerMainIpc(input: {
     }
 
     await input.openPermissionSettings(permission)
+  })
+  ipcMain.handle(IPC_CHANNELS.app.checkForUpdates, async () => {
+    return input.checkForUpdates()
+  })
+  ipcMain.handle(IPC_CHANNELS.app.restartToUpdate, async () => {
+    await input.restartToUpdate()
   })
   ipcMain.handle(IPC_CHANNELS.app.resetOnboarding, () => {
     input.resetOnboarding()

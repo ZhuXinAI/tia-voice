@@ -1,12 +1,21 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const baseState = {
+  appInfo: {
+    name: 'TIA Voice',
+    version: '1.1.0'
+  },
   hotkeyHint: 'Hold the push-to-talk key to dictate into the current app.',
   registeredHotkey: null,
   registeredHotkeyLabel: null,
+  selectedProvider: 'dashscope' as const,
+  microphone: {
+    selectedDeviceId: null,
+    selectedDeviceLabel: null
+  },
   providerLabels: {
     asr: 'qwen3-asr-flash',
     llm: 'qwen-plus'
@@ -15,15 +24,41 @@ const baseState = {
     configured: false,
     keyLabel: null
   },
+  openai: {
+    configured: false,
+    keyLabel: null
+  },
   onboarding: {
     completed: true,
     visible: false
   },
   themeMode: 'system' as const,
+  postProcessPreset: 'formal' as const,
+  postProcessPresets: [
+    {
+      id: 'formal',
+      name: 'Formal',
+      systemPrompt:
+        'Prefer polished punctuation, complete sentences, and a professional tone while preserving the speaker intent, wording, and meaning.',
+      builtIn: true
+    },
+    {
+      id: 'casual',
+      name: 'Casual',
+      systemPrompt:
+        'Prefer a conversational, relaxed tone with lighter punctuation and natural shorthand when it fits, while preserving the speaker intent, wording, and meaning.',
+      builtIn: true
+    }
+  ],
   voiceBackendStatus: {
     ready: false,
     label: 'DashScope key required',
     detail: 'Add your DashScope API key in onboarding or settings to start dictating.'
+  },
+  historySummary: {
+    totalCount: 0,
+    wordsSpoken: 0,
+    averageWpm: null
   },
   permissions: {
     hasMissing: true,
@@ -44,6 +79,15 @@ const baseState = {
       ctaLabel: 'Request Microphone Permission'
     }
   },
+  autoUpdate: {
+    status: 'idle' as const,
+    currentVersion: '1.1.0',
+    availableVersion: null,
+    releaseDate: null,
+    lastCheckedAt: null,
+    downloadProgressPercent: null,
+    message: null
+  },
   history: []
 }
 
@@ -57,6 +101,11 @@ const configuredState = {
     ready: true,
     label: 'Voice typing ready',
     detail: 'Your DashScope key is configured and ready for voice typing.'
+  },
+  historySummary: {
+    totalCount: 0,
+    wordsSpoken: 0,
+    averageWpm: null
   },
   permissions: {
     hasMissing: false,
@@ -84,42 +133,75 @@ const onboardingState = {
 }
 
 const {
+  getHistoryPageMock,
   getHistoryEntryDebugMock,
   getMainAppStateMock,
   subscribeToAppStateMock,
   retryHistoryEntryMock,
   completeOnboardingMock,
+  createPostProcessPresetMock,
+  resetPostProcessPresetMock,
   resetOnboardingMock,
   saveDashscopeApiKeyMock,
+  saveOpenAiApiKeyMock,
   checkMicrophonePermissionMock,
   openPermissionSettingsMock,
   showOnboardingWindowMock,
-  setThemeModeMock
+  checkForUpdatesMock,
+  restartToUpdateMock,
+  setThemeModeMock,
+  setPostProcessPresetMock,
+  savePostProcessPresetMock,
+  setHotkeyMock,
+  setMicrophoneMock,
+  setProviderMock
 } = vi.hoisted(() => ({
+  getHistoryPageMock: vi.fn(),
   getHistoryEntryDebugMock: vi.fn(),
   getMainAppStateMock: vi.fn(),
   subscribeToAppStateMock: vi.fn(),
   retryHistoryEntryMock: vi.fn(),
   completeOnboardingMock: vi.fn(),
+  createPostProcessPresetMock: vi.fn(),
+  resetPostProcessPresetMock: vi.fn(),
   resetOnboardingMock: vi.fn(),
   saveDashscopeApiKeyMock: vi.fn(),
+  saveOpenAiApiKeyMock: vi.fn(),
   checkMicrophonePermissionMock: vi.fn(),
   openPermissionSettingsMock: vi.fn(),
   showOnboardingWindowMock: vi.fn(),
-  setThemeModeMock: vi.fn()
+  checkForUpdatesMock: vi.fn(),
+  restartToUpdateMock: vi.fn(),
+  setThemeModeMock: vi.fn(),
+  setPostProcessPresetMock: vi.fn(),
+  savePostProcessPresetMock: vi.fn(),
+  setHotkeyMock: vi.fn(),
+  setMicrophoneMock: vi.fn(),
+  setProviderMock: vi.fn()
 }))
 
 vi.mock('../lib/ipc', () => ({
   completeOnboarding: completeOnboardingMock,
+  createPostProcessPreset: createPostProcessPresetMock,
+  resetPostProcessPreset: resetPostProcessPresetMock,
+  getHistoryPage: getHistoryPageMock,
   getHistoryEntryDebug: getHistoryEntryDebugMock,
   getMainAppState: getMainAppStateMock,
   resetOnboarding: resetOnboardingMock,
   retryHistoryEntry: retryHistoryEntryMock,
   saveDashscopeApiKey: saveDashscopeApiKeyMock,
+  saveOpenAiApiKey: saveOpenAiApiKeyMock,
   checkMicrophonePermission: checkMicrophonePermissionMock,
   openPermissionSettings: openPermissionSettingsMock,
   showOnboardingWindow: showOnboardingWindowMock,
+  checkForUpdates: checkForUpdatesMock,
+  restartToUpdate: restartToUpdateMock,
   setThemeMode: setThemeModeMock,
+  setPostProcessPreset: setPostProcessPresetMock,
+  savePostProcessPreset: savePostProcessPresetMock,
+  setHotkey: setHotkeyMock,
+  setMicrophone: setMicrophoneMock,
+  setProvider: setProviderMock,
   subscribeToAppState: subscribeToAppStateMock
 }))
 
@@ -132,6 +214,8 @@ describe('MainAppWindow', () => {
   })
 
   beforeEach(() => {
+    window.history.replaceState({}, '', '/')
+
     vi.stubGlobal(
       'URL',
       Object.assign(globalThis.URL, {
@@ -141,30 +225,75 @@ describe('MainAppWindow', () => {
     )
 
     getMainAppStateMock.mockReset()
+    getHistoryPageMock.mockReset()
     getHistoryEntryDebugMock.mockReset()
     subscribeToAppStateMock.mockReset()
     retryHistoryEntryMock.mockReset()
     completeOnboardingMock.mockReset()
+    createPostProcessPresetMock.mockReset()
+    resetPostProcessPresetMock.mockReset()
     resetOnboardingMock.mockReset()
     saveDashscopeApiKeyMock.mockReset()
+    saveOpenAiApiKeyMock.mockReset()
     checkMicrophonePermissionMock.mockReset()
     openPermissionSettingsMock.mockReset()
     showOnboardingWindowMock.mockReset()
+    checkForUpdatesMock.mockReset()
+    restartToUpdateMock.mockReset()
     setThemeModeMock.mockReset()
+    setPostProcessPresetMock.mockReset()
+    savePostProcessPresetMock.mockReset()
+    setHotkeyMock.mockReset()
+    setMicrophoneMock.mockReset()
+    setProviderMock.mockReset()
 
     subscribeToAppStateMock.mockReturnValue(() => undefined)
+    getMainAppStateMock.mockResolvedValue(baseState)
+    getHistoryPageMock.mockResolvedValue({
+      items: [],
+      totalCount: 0
+    })
     getHistoryEntryDebugMock.mockResolvedValue(null)
     retryHistoryEntryMock.mockResolvedValue(undefined)
     completeOnboardingMock.mockResolvedValue(undefined)
+    createPostProcessPresetMock.mockResolvedValue({
+      id: 'preset-support',
+      name: 'Support',
+      systemPrompt: 'Sound warm and concise.',
+      builtIn: false
+    })
+    resetPostProcessPresetMock.mockResolvedValue({
+      id: 'formal',
+      name: 'Formal',
+      systemPrompt:
+        'Prefer polished punctuation, complete sentences, and a professional tone while preserving the speaker intent, wording, and meaning.',
+      builtIn: true
+    })
     resetOnboardingMock.mockResolvedValue(undefined)
     saveDashscopeApiKeyMock.mockResolvedValue({
+      configured: true,
+      keyLabel: 'Saved locally ••••1234'
+    })
+    saveOpenAiApiKeyMock.mockResolvedValue({
       configured: true,
       keyLabel: 'Saved locally ••••1234'
     })
     checkMicrophonePermissionMock.mockResolvedValue(false)
     openPermissionSettingsMock.mockResolvedValue(undefined)
     showOnboardingWindowMock.mockResolvedValue(undefined)
+    checkForUpdatesMock.mockResolvedValue(baseState.autoUpdate)
+    restartToUpdateMock.mockResolvedValue(undefined)
     setThemeModeMock.mockResolvedValue(undefined)
+    setPostProcessPresetMock.mockResolvedValue(undefined)
+    savePostProcessPresetMock.mockResolvedValue({
+      id: 'formal',
+      name: 'Formal',
+      systemPrompt: 'Keep it polished.',
+      builtIn: true
+    })
+    setHotkeyMock.mockResolvedValue(undefined)
+    setMicrophoneMock.mockResolvedValue(undefined)
+    setProviderMock.mockResolvedValue(undefined)
   })
 
   it('renders main app shell', async () => {
@@ -188,12 +317,158 @@ describe('MainAppWindow', () => {
 
     const input = await screen.findByPlaceholderText(/enter your dashscope api key/i)
     fireEvent.change(input, { target: { value: 'sk-test-1234' } })
-    fireEvent.click(screen.getByRole('button', { name: /^save key$/i }))
+    fireEvent.click((await screen.findAllByRole('button', { name: /^save key$/i }))[0])
 
     await waitFor(() => {
       expect(saveDashscopeApiKeyMock).toHaveBeenCalledWith('sk-test-1234')
     })
     expect((await screen.findAllByText(/saved locally/i)).length).toBeGreaterThan(0)
+  })
+
+  it('updates the global hotkey from settings', async () => {
+    getMainAppStateMock.mockResolvedValueOnce(baseState).mockResolvedValueOnce({
+      ...baseState,
+      registeredHotkey: 'AltRight',
+      registeredHotkeyLabel: 'Right Alt'
+    })
+
+    render(<MainAppWindow />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /settings/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /right option/i }))
+
+    await waitFor(() => {
+      expect(setHotkeyMock).toHaveBeenCalledWith('AltRight')
+    })
+  })
+
+  it('switches the active provider to OpenAI from settings', async () => {
+    getMainAppStateMock.mockResolvedValueOnce(baseState).mockResolvedValueOnce({
+      ...baseState,
+      selectedProvider: 'openai',
+      openai: {
+        configured: true,
+        keyLabel: 'Saved locally ••••5678'
+      },
+      providerLabels: {
+        asr: 'gpt-4o-mini-transcribe',
+        llm: 'gpt-5-mini'
+      },
+      voiceBackendStatus: {
+        ready: false,
+        label: 'OpenAI key required',
+        detail: 'Add your OpenAI API key in onboarding or settings to start dictating.'
+      }
+    })
+
+    render(<MainAppWindow />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /settings/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^providers$/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /openai/i }))
+
+    await waitFor(() => {
+      expect(setProviderMock).toHaveBeenCalledWith('openai')
+    })
+  })
+
+  it('switches the post-process preset from the presets page', async () => {
+    getMainAppStateMock.mockResolvedValueOnce(baseState).mockResolvedValueOnce({
+      ...baseState,
+      postProcessPreset: 'casual'
+    })
+
+    render(<MainAppWindow />)
+
+    fireEvent.click(await screen.findByRole('link', { name: /presets/i }))
+    fireEvent.click((await screen.findByText('Casual')).closest('button') as HTMLElement)
+
+    await waitFor(() => {
+      expect(setPostProcessPresetMock).toHaveBeenCalledWith('casual')
+    })
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+  })
+
+  it('highlights only the presets navigation item on the presets page', async () => {
+    render(<MainAppWindow />)
+
+    const homeLink = await screen.findByRole('link', { name: /home/i })
+    const presetsLink = await screen.findByRole('link', { name: /presets/i })
+
+    expect(homeLink).toHaveAttribute('data-active', 'true')
+    expect(presetsLink).toHaveAttribute('data-active', 'false')
+
+    fireEvent.click(presetsLink)
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Presets' })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /home/i })).toHaveAttribute('data-active', 'false')
+      expect(screen.getByRole('link', { name: /presets/i })).toHaveAttribute('data-active', 'true')
+    })
+  })
+
+  it('opens the preset editor only from the edit action', async () => {
+    render(<MainAppWindow />)
+
+    fireEvent.click(await screen.findByRole('link', { name: /presets/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /edit preset formal/i }))
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Formal' })).toBeInTheDocument()
+  })
+
+  it('saves edited preset instructions from the preset dialog', async () => {
+    render(<MainAppWindow />)
+
+    fireEvent.click(await screen.findByRole('link', { name: /presets/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /edit preset formal/i }))
+    fireEvent.change(await screen.findByLabelText(/preset prompt/i), {
+      target: { value: 'Keep the output polished and direct.' }
+    })
+    fireEvent.click(await screen.findByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => {
+      expect(savePostProcessPresetMock).toHaveBeenCalledWith({
+        id: 'formal',
+        name: 'Formal',
+        systemPrompt: 'Keep the output polished and direct.'
+      })
+    })
+  })
+
+  it('resets a built-in preset from the preset dialog', async () => {
+    render(<MainAppWindow />)
+
+    fireEvent.click(await screen.findByRole('link', { name: /presets/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /edit preset formal/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /reset to default/i }))
+
+    await waitFor(() => {
+      expect(resetPostProcessPresetMock).toHaveBeenCalledWith('formal')
+    })
+  })
+
+  it('creates a custom preset from the preset dialog', async () => {
+    render(<MainAppWindow />)
+
+    fireEvent.click(await screen.findByRole('link', { name: /presets/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /new preset/i }))
+    fireEvent.change(await screen.findByLabelText(/preset name/i), {
+      target: { value: 'Support' }
+    })
+    fireEvent.change(await screen.findByLabelText(/preset prompt/i), {
+      target: { value: 'Sound warm and concise.' }
+    })
+    fireEvent.click(await screen.findByRole('button', { name: /create preset/i }))
+
+    await waitFor(() => {
+      expect(createPostProcessPresetMock).toHaveBeenCalledWith({
+        name: 'Support',
+        systemPrompt: 'Sound warm and concise.'
+      })
+    })
   })
 
   it('opens onboarding from settings when setup guide is requested', async () => {
@@ -225,9 +500,66 @@ describe('MainAppWindow', () => {
     })
   })
 
+  it('renders the about tab with current version and update controls', async () => {
+    getMainAppStateMock.mockResolvedValue({
+      ...configuredState,
+      autoUpdate: {
+        status: 'update-available',
+        currentVersion: '1.1.0',
+        availableVersion: '1.0.36',
+        releaseDate: '2026-04-21T10:00:00.000Z',
+        lastCheckedAt: Date.UTC(2026, 3, 21, 10, 15),
+        downloadProgressPercent: 42,
+        message: 'v1.0.36 is downloading in the background (42%).'
+      }
+    })
+
+    render(<MainAppWindow />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /settings/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^about$/i }))
+
+    expect((await screen.findAllByText(/^v1.1.0$/)).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/v1.0.36 is downloading/i).length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('button', { name: /check for updates/i }))
+
+    await waitFor(() => {
+      expect(checkForUpdatesMock).toHaveBeenCalled()
+    })
+  })
+
+  it('shows a sidebar update badge when an update is ready', async () => {
+    getMainAppStateMock.mockResolvedValue({
+      ...configuredState,
+      autoUpdate: {
+        status: 'update-downloaded',
+        currentVersion: '1.1.0',
+        availableVersion: '1.0.36',
+        releaseDate: '2026-04-21T10:00:00.000Z',
+        lastCheckedAt: Date.UTC(2026, 3, 21, 10, 15),
+        downloadProgressPercent: 100,
+        message: 'v1.0.36 is ready to install.'
+      }
+    })
+
+    render(<MainAppWindow />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /^update$/i }))
+
+    await waitFor(() => {
+      expect(restartToUpdateMock).toHaveBeenCalled()
+    })
+  })
+
   it('opens history debug details when a transcription item is clicked', async () => {
     getMainAppStateMock.mockResolvedValue({
       ...configuredState,
+      historySummary: {
+        totalCount: 1,
+        wordsSpoken: 2,
+        averageWpm: null
+      },
       history: [
         {
           id: 'history-1',
@@ -255,9 +587,8 @@ describe('MainAppWindow', () => {
 
     render(<MainAppWindow />)
 
-    fireEvent.click(
-      await screen.findByRole('button', { name: /open details for voice transcription/i })
-    )
+    const historyTitle = await screen.findByText('Voice transcription')
+    fireEvent.click(historyTitle.closest('[role="button"]') as HTMLElement)
 
     await waitFor(() => {
       expect(getHistoryEntryDebugMock).toHaveBeenCalledWith('history-1')
@@ -269,5 +600,98 @@ describe('MainAppWindow', () => {
     expect(screen.getByRole('button', { name: /play audio/i })).toBeInTheDocument()
     expect(screen.getByRole('slider', { name: /seek audio/i })).toBeInTheDocument()
     expect(screen.getByTestId('audio-waveform')).toBeInTheDocument()
+  })
+
+  it('shows only the recent history on the home screen and paginates the full history dialog', async () => {
+    const previewHistory = Array.from({ length: 10 }, (_, index) => ({
+      id: `history-${index + 1}`,
+      createdAt: 100 - index,
+      title: `History ${index + 1}`,
+      preview: `Preview ${index + 1}`,
+      status: 'completed' as const,
+      hasAudio: true
+    }))
+
+    getMainAppStateMock.mockResolvedValue({
+      ...configuredState,
+      historySummary: {
+        totalCount: 25,
+        wordsSpoken: 250,
+        averageWpm: 118
+      },
+      history: previewHistory
+    })
+    getHistoryPageMock.mockImplementation(async (input?: { offset?: number; limit?: number }) => {
+      if (input?.offset === 10) {
+        return {
+          totalCount: 25,
+          items: Array.from({ length: 10 }, (_, index) => ({
+            id: `history-${index + 11}`,
+            createdAt: 90 - index,
+            title: `History ${index + 11}`,
+            preview: `Preview ${index + 11}`,
+            status: 'completed' as const,
+            hasAudio: true
+          }))
+        }
+      }
+
+      if (input?.offset === 20) {
+        return {
+          totalCount: 25,
+          items: Array.from({ length: 5 }, (_, index) => ({
+            id: `history-${index + 21}`,
+            createdAt: 80 - index,
+            title: `History ${index + 21}`,
+            preview: `Preview ${index + 21}`,
+            status: 'completed' as const,
+            hasAudio: true
+          }))
+        }
+      }
+
+      return {
+        totalCount: 25,
+        items: previewHistory
+      }
+    })
+
+    render(<MainAppWindow />)
+
+    expect(await screen.findByText('History 1')).toBeInTheDocument()
+    expect(screen.queryByText('History 11')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /show all/i }))
+
+    expect(
+      await screen.findByRole('heading', { name: /full transcription history/i })
+    ).toBeInTheDocument()
+
+    const historyDialog = screen.getByRole('dialog')
+    expect(within(historyDialog).getByText(/page 1 of 3/i)).toBeInTheDocument()
+    expect(within(historyDialog).getByText('History 10')).toBeInTheDocument()
+    expect(within(historyDialog).queryByText('History 11')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /^next$/i }))
+
+    await waitFor(() => {
+      expect(getHistoryPageMock).toHaveBeenCalledWith({ offset: 10, limit: 10 })
+    })
+    expect(await within(historyDialog).findByText('History 11')).toBeInTheDocument()
+    expect(within(historyDialog).getByText(/page 2 of 3/i)).toBeInTheDocument()
+    expect(within(historyDialog).queryByText('History 1')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /^next$/i }))
+
+    await waitFor(() => {
+      expect(getHistoryPageMock).toHaveBeenCalledWith({ offset: 20, limit: 10 })
+    })
+    expect(await within(historyDialog).findByText('History 21')).toBeInTheDocument()
+    expect(within(historyDialog).getByText(/page 3 of 3/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /^previous$/i }))
+
+    expect(await within(historyDialog).findByText('History 11')).toBeInTheDocument()
+    expect(within(historyDialog).getByText(/page 2 of 3/i)).toBeInTheDocument()
   })
 })

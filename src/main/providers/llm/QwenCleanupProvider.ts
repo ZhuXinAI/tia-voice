@@ -1,7 +1,16 @@
 import type { LlmProvider, LlmTransformInput } from './LlmProvider'
+import {
+  buildPostProcessPromptParts,
+  DEFAULT_POST_PROCESS_PRESETS,
+  normalizePostProcessPreset,
+  type PostProcessPresetRecord
+} from './postProcessPrompts'
 
 type FetchLike = typeof fetch
 type ApiKeyResolver = string | (() => string | Promise<string>)
+type PostProcessPresetResolver =
+  | PostProcessPresetRecord
+  | (() => PostProcessPresetRecord | Promise<PostProcessPresetRecord>)
 
 type QwenMessageContent = string | Array<{ type?: string; text?: string }>
 
@@ -11,27 +20,6 @@ type QwenResponse = {
       content?: QwenMessageContent
     }
   }>
-}
-
-const SYSTEM_PROMPT = [
-  'You are a voice-driven text assistant.',
-  'You receive: (1) a spoken instruction transcript and (2) optional selected text from user screen.',
-  'Decide if the spoken instruction is asking to modify the selected text.',
-  'If it is an edit intent and selected text exists, rewrite the selected text to satisfy the instruction.',
-  'If not, clean the spoken transcript for punctuation, grammar, and natural phrasing without changing meaning.',
-  'Keep the output in the same language unless the instruction asks for translation.',
-  'Return only the final text. No explanation, JSON, markdown, or quotes.'
-].join(' ')
-
-function buildUserPrompt(input: LlmTransformInput): string {
-  return JSON.stringify(
-    {
-      instructionTranscript: input.transcriptText,
-      selectedText: input.selectedText
-    },
-    null,
-    2
-  )
 }
 
 function extractText(content: QwenMessageContent | undefined): string {
@@ -56,9 +44,15 @@ async function resolveApiKey(input: ApiKeyResolver): Promise<string> {
   return value
 }
 
+async function resolvePostProcessPreset(input: PostProcessPresetResolver | undefined) {
+  const value = typeof input === 'function' ? await input() : input
+  return normalizePostProcessPreset(value, DEFAULT_POST_PROCESS_PRESETS[0])
+}
+
 export function createQwenCleanupProvider(input: {
   apiKey: ApiKeyResolver
   baseUrl: string
+  postProcessPreset?: PostProcessPresetResolver
   fetcher?: FetchLike
 }): LlmProvider {
   const fetcher = input.fetcher ?? fetch
@@ -66,6 +60,11 @@ export function createQwenCleanupProvider(input: {
   return {
     async transform(request: LlmTransformInput) {
       const apiKey = await resolveApiKey(input.apiKey)
+      const postProcessPreset = await resolvePostProcessPreset(input.postProcessPreset)
+      const prompt = buildPostProcessPromptParts({
+        request,
+        preset: postProcessPreset
+      })
       const response = await fetcher(`${input.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -77,11 +76,11 @@ export function createQwenCleanupProvider(input: {
           messages: [
             {
               role: 'system',
-              content: SYSTEM_PROMPT
+              content: prompt.system
             },
             {
               role: 'user',
-              content: buildUserPrompt(request)
+              content: prompt.prompt
             }
           ]
         })

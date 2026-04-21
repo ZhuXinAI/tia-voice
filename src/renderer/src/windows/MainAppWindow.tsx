@@ -2,26 +2,43 @@ import { useEffect, useMemo, useState } from 'react'
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 
 import {
+  checkForUpdates,
   completeOnboarding,
   getHistoryEntryDebug,
   getMainAppState,
   openPermissionSettings,
   resetOnboarding,
+  restartToUpdate,
   retryHistoryEntry,
+  createPostProcessPreset,
   saveDashscopeApiKey,
+  saveOpenAiApiKey,
+  resetPostProcessPreset,
+  savePostProcessPreset,
+  setPostProcessPreset,
   showOnboardingWindow,
+  setHotkey,
+  setMicrophone,
+  setProvider,
   setThemeMode,
   subscribeToAppState
 } from '../lib/ipc'
 import { requestMicrophonePermission } from '../lib/microphoneAccess'
-import type { ThemeMode } from '../../../preload/index'
+import type {
+  PostProcessPresetId,
+  ProviderKind,
+  ThemeMode,
+  TriggerKey
+} from '../../../preload/index'
 
 import { defaultMainAppState, starterDictionary } from './main-app/defaults'
 import { DictionaryRoute } from './main-app/DictionaryRoute'
 import { HomeRoute } from './main-app/HomeRoute'
+import { HistoryDialog } from './main-app/HistoryDialog'
 import { HistoryDebugDialog } from './main-app/HistoryDebugDialog'
 import { MainAppLayout } from './main-app/MainAppLayout'
 import { OnboardingDialog } from './main-app/OnboardingDialog'
+import { PresetsRoute } from './main-app/PresetsRoute'
 import { SettingsDialog } from './main-app/SettingsDialog'
 import type {
   DictionaryPhrase,
@@ -29,11 +46,13 @@ import type {
   SettingsSection,
   TiaHistoryDebugEntry
 } from './main-app/types'
-import { countWords } from './main-app/utils'
+import { useAudioInputs } from './main-app/useAudioInputs'
+import { useHistoryPagination } from './main-app/useHistoryPagination'
 
 export default function MainAppWindow(): React.JSX.Element {
   const [state, setState] = useState(defaultMainAppState)
   const [retrying, setRetrying] = useState<Record<string, boolean>>({})
+  const [historyListOpen, setHistoryListOpen] = useState(false)
   const [onboardingOpen, setOnboardingOpen] = useState(defaultMainAppState.onboarding.visible)
   const [selectedHistory, setSelectedHistory] = useState<MainAppHistoryEntry | null>(null)
   const [selectedHistoryDetail, setSelectedHistoryDetail] = useState<TiaHistoryDebugEntry | null>(
@@ -48,6 +67,12 @@ export default function MainAppWindow(): React.JSX.Element {
   const [phraseDraft, setPhraseDraft] = useState('')
   const [replacementDraft, setReplacementDraft] = useState('')
   const [noteDraft, setNoteDraft] = useState('')
+  const { audioInputs } = useAudioInputs()
+  const historyPagination = useHistoryPagination({
+    recentHistory: state.history,
+    totalCount: state.historySummary.totalCount,
+    open: historyListOpen
+  })
 
   const syncMainAppState = async (): Promise<void> => {
     const nextState = await getMainAppState()
@@ -137,7 +162,7 @@ export default function MainAppWindow(): React.JSX.Element {
     }
   }
 
-  const handleHistoryDialogOpenChange = (open: boolean): void => {
+  const handleHistoryDetailOpenChange = (open: boolean): void => {
     if (open) {
       return
     }
@@ -147,29 +172,26 @@ export default function MainAppWindow(): React.JSX.Element {
     setHistoryDetailLoading(false)
   }
 
-  const wordsSpoken = useMemo(() => {
-    return state.history.reduce((sum, item) => sum + countWords(item.preview), 0)
-  }, [state.history])
+  const handleOpenHistoryDetailsFromDialog = (entry: MainAppHistoryEntry): void => {
+    setHistoryListOpen(false)
+    void handleOpenHistoryDetails(entry)
+  }
+  const microphoneOptions = useMemo(() => {
+    const selectedOption =
+      state.microphone.selectedDeviceId || state.microphone.selectedDeviceLabel
+        ? [
+            {
+              deviceId: state.microphone.selectedDeviceId,
+              label: state.microphone.selectedDeviceLabel ?? 'Previously selected microphone'
+            }
+          ]
+        : []
 
-  const averageWpm = useMemo(() => {
-    if (state.history.length < 2 || wordsSpoken === 0) {
-      return null
-    }
-
-    const sortedByTime = [...state.history].sort((a, b) => a.createdAt - b.createdAt)
-    const elapsedMs = sortedByTime[sortedByTime.length - 1].createdAt - sortedByTime[0].createdAt
-
-    if (elapsedMs <= 0) {
-      return null
-    }
-
-    const elapsedMinutes = elapsedMs / 60000
-    return Math.max(1, Math.round(wordsSpoken / elapsedMinutes))
-  }, [state.history, wordsSpoken])
-
-  const history = useMemo(() => {
-    return [...state.history].sort((a, b) => b.createdAt - a.createdAt)
-  }, [state.history])
+    return [...selectedOption, ...audioInputs].filter(
+      (option, index, allOptions) =>
+        allOptions.findIndex((candidate) => candidate.deviceId === option.deviceId) === index
+    )
+  }, [audioInputs, state.microphone.selectedDeviceId, state.microphone.selectedDeviceLabel])
 
   const handleAddPhrase = (): void => {
     if (!phraseDraft.trim() || !replacementDraft.trim()) {
@@ -211,6 +233,64 @@ export default function MainAppWindow(): React.JSX.Element {
     }
   }
 
+  const handlePostProcessPresetChange = async (presetId: PostProcessPresetId): Promise<void> => {
+    const previousPreset = state.postProcessPreset
+    setState((current) => ({
+      ...current,
+      postProcessPreset: presetId
+    }))
+
+    try {
+      await setPostProcessPreset(presetId)
+      await syncMainAppState()
+    } catch {
+      setState((current) => ({
+        ...current,
+        postProcessPreset: previousPreset
+      }))
+    }
+  }
+
+  const handleSavePostProcessPreset = async (input: {
+    id: string
+    name: string
+    systemPrompt: string
+  }): Promise<void> => {
+    await savePostProcessPreset(input)
+    await syncMainAppState()
+  }
+
+  const handleResetPostProcessPreset = async (presetId: string): Promise<void> => {
+    await resetPostProcessPreset(presetId)
+    await syncMainAppState()
+  }
+
+  const handleCreatePostProcessPreset = async (input: {
+    name: string
+    systemPrompt: string
+  }): Promise<void> => {
+    await createPostProcessPreset(input)
+    await syncMainAppState()
+  }
+
+  const handleHotkeyChange = async (hotkey: TriggerKey): Promise<void> => {
+    await setHotkey(hotkey)
+    await syncMainAppState()
+  }
+
+  const handleMicrophoneChange = async (input: {
+    deviceId: string | null
+    label: string | null
+  }): Promise<void> => {
+    await setMicrophone(input)
+    await syncMainAppState()
+  }
+
+  const handleProviderChange = async (provider: ProviderKind): Promise<void> => {
+    await setProvider(provider)
+    await syncMainAppState()
+  }
+
   const handleResetOnboarding = async (): Promise<void> => {
     await resetOnboarding()
     await showOnboardingWindow()
@@ -243,6 +323,11 @@ export default function MainAppWindow(): React.JSX.Element {
     await syncMainAppState()
   }
 
+  const handleSaveOpenAiApiKey = async (apiKey: string): Promise<void> => {
+    await saveOpenAiApiKey(apiKey)
+    await syncMainAppState()
+  }
+
   const handleOpenOnboardingFromSettings = async (): Promise<void> => {
     setSettingsOpen(false)
     setOnboardingOpen(true)
@@ -262,6 +347,15 @@ export default function MainAppWindow(): React.JSX.Element {
     await openPermissionSettings(permission)
   }
 
+  const handleCheckForUpdates = async (): Promise<void> => {
+    await checkForUpdates()
+    await syncMainAppState()
+  }
+
+  const handleRestartToUpdate = async (): Promise<void> => {
+    await restartToUpdate()
+  }
+
   return (
     <HashRouter>
       <Routes>
@@ -270,9 +364,15 @@ export default function MainAppWindow(): React.JSX.Element {
           element={
             <MainAppLayout
               dashscope={state.dashscope}
+              openai={state.openai}
+              selectedProvider={state.selectedProvider}
+              postProcessPreset={state.postProcessPreset}
+              postProcessPresets={state.postProcessPresets}
               onOpenSettings={handleOpenSettings}
               permissions={state.permissions}
               voiceBackendStatus={state.voiceBackendStatus}
+              autoUpdate={state.autoUpdate}
+              onRestartToUpdate={handleRestartToUpdate}
             />
           }
         >
@@ -280,11 +380,13 @@ export default function MainAppWindow(): React.JSX.Element {
             index
             element={
               <HomeRoute
-                wordsSpoken={wordsSpoken}
-                averageWpm={averageWpm}
-                history={history}
+                wordsSpoken={state.historySummary.wordsSpoken}
+                averageWpm={state.historySummary.averageWpm}
+                totalCount={state.historySummary.totalCount}
+                history={state.history}
                 retrying={retrying}
                 onOpenDetails={(entry) => void handleOpenHistoryDetails(entry)}
+                onShowAll={() => setHistoryListOpen(true)}
                 onRetry={handleRetry}
               />
             }
@@ -305,6 +407,20 @@ export default function MainAppWindow(): React.JSX.Element {
               />
             }
           />
+
+          <Route
+            path="presets"
+            element={
+              <PresetsRoute
+                presets={state.postProcessPresets}
+                selectedPreset={state.postProcessPreset}
+                onSelectPreset={(presetId) => void handlePostProcessPresetChange(presetId)}
+                onSavePreset={(input) => void handleSavePostProcessPreset(input)}
+                onResetPreset={(presetId) => void handleResetPostProcessPreset(presetId)}
+                onCreatePreset={(input) => void handleCreatePostProcessPreset(input)}
+              />
+            }
+          />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
@@ -315,22 +431,53 @@ export default function MainAppWindow(): React.JSX.Element {
         onOpenChange={setSettingsOpen}
         section={settingsSection}
         onSectionChange={setSettingsSection}
+        registeredHotkey={state.registeredHotkey}
+        selectedProvider={state.selectedProvider}
+        selectedMicrophone={{
+          deviceId: state.microphone.selectedDeviceId,
+          label: state.microphone.selectedDeviceLabel
+        }}
+        microphoneOptions={microphoneOptions}
         dashscope={state.dashscope}
+        openai={state.openai}
         permissions={state.permissions}
+        appInfo={state.appInfo}
+        autoUpdate={state.autoUpdate}
         themeMode={state.themeMode}
         onThemeModeChange={handleThemeModeChange}
+        onHotkeyChange={handleHotkeyChange}
+        onMicrophoneChange={handleMicrophoneChange}
+        onProviderChange={handleProviderChange}
         onSaveDashscopeApiKey={handleSaveDashscopeApiKey}
+        onSaveOpenAiApiKey={handleSaveOpenAiApiKey}
         onOpenPermissionSettings={handleOpenPermissionSettings}
+        onCheckForUpdates={handleCheckForUpdates}
+        onRestartToUpdate={handleRestartToUpdate}
         onOpenOnboarding={handleOpenOnboardingFromSettings}
         onResetOnboarding={handleResetOnboarding}
       />
 
       <HistoryDebugDialog
         open={selectedHistory !== null}
-        onOpenChange={handleHistoryDialogOpenChange}
+        onOpenChange={handleHistoryDetailOpenChange}
         historyTitle={selectedHistory?.title ?? 'Transcription details'}
         detail={selectedHistoryDetail}
         loading={historyDetailLoading}
+      />
+
+      <HistoryDialog
+        open={historyListOpen}
+        onOpenChange={setHistoryListOpen}
+        history={historyPagination.history}
+        totalCount={state.historySummary.totalCount}
+        pageIndex={historyPagination.pageIndex}
+        pageCount={historyPagination.pageCount}
+        loading={historyPagination.loading}
+        retrying={retrying}
+        onPreviousPage={historyPagination.goToPreviousPage}
+        onNextPage={historyPagination.goToNextPage}
+        onOpenDetails={handleOpenHistoryDetailsFromDialog}
+        onRetry={handleRetry}
       />
 
       <OnboardingDialog

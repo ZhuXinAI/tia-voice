@@ -16,7 +16,7 @@ import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { uIOhook } from 'uiohook-napi'
 
 import { createNutPasteExecutor } from '../actions/NutPasteExecutor'
-import { createSettingsStore } from '../config/settingsStore'
+import { createSettingsStore, type ProviderKind } from '../config/settingsStore'
 import { loadAppEnv, type TriggerKey } from '../config/env'
 import { createNoopContextProvider } from '../context/NoopContextProvider'
 import { createSelectionHookContextProvider } from '../context/SelectionHookContextProvider'
@@ -28,7 +28,9 @@ import {
 } from '../hotkeys/triggerKey'
 import { registerMainIpc } from '../ipc/registerMainIpc'
 import type {
+  HistoryPagePayload,
   MainAppStatePayload,
+  AppInfoPayload,
   PermissionKind,
   PermissionStatePayload,
   PermissionStatus,
@@ -37,22 +39,42 @@ import type {
 import { getDebugLogPath, logDebug } from '../logging/debugLogger'
 import { createEphemeralSessionStore } from '../orchestration/ephemeralSessionStore'
 import { createVoicePipeline } from '../orchestration/voicePipeline'
+import { createOpenAiAsrProvider } from '../providers/asr/OpenAiAsrProvider'
 import { createQwenAsrProvider } from '../providers/asr/QwenAsrProvider'
+import { createOpenAiCleanupProvider } from '../providers/llm/OpenAiCleanupProvider'
 import { createQwenCleanupProvider } from '../providers/llm/QwenCleanupProvider'
+import type { PostProcessPresetRecord } from '../providers/llm/postProcessPrompts'
 import { createMainAppWindow } from '../windows/createMainAppWindow'
 import { createRecordingBarWindow } from '../windows/createRecordingBarWindow'
 import { createWindowManager } from '../windows/windowManager'
-import { initializeAutoUpdater } from '../updater/autoUpdater'
+import {
+  checkForUpdates as checkForAutoUpdates,
+  getAutoUpdateState,
+  initializeAutoUpdater,
+  restartToUpdate as restartToInstallUpdate
+} from '../updater/autoUpdater'
 import { createMicrophonePermissionState } from './microphonePermissionState'
 
 const SHOW_MAIN_WINDOW_SHORTCUT = 'CommandOrControl+Shift+Space'
 const ACCESSIBILITY_PERMISSION_RECHECK_INTERVAL_MS = 30_000
 const ACCESSIBILITY_PERMISSION_PROMPT_COOLDOWN_MS = 5 * 60_000
+const HISTORY_PAGE_SIZE = 10
 const ACCESSIBILITY_SETTINGS_URL =
   'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'
 const MICROPHONE_SETTINGS_URL =
   'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'
 let tray: Tray | null = null
+
+const PROVIDER_LABELS: Record<ProviderKind, { name: string; missingKeyLabel: string }> = {
+  dashscope: {
+    name: 'DashScope',
+    missingKeyLabel: 'DashScope key required'
+  },
+  openai: {
+    name: 'OpenAI',
+    missingKeyLabel: 'OpenAI key required'
+  }
+}
 
 type ResolvedIconAsset = {
   icon: NativeImage
@@ -186,16 +208,70 @@ function getAccessibilityPermissionSnapshot(): PermissionSnapshot {
   }
 }
 
+function countWords(text: string): number {
+  const tokens = text.trim().match(/[\p{L}\p{N}'-]+/gu)
+  return tokens?.length ?? 0
+}
+
+function toHistoryListItem(input: {
+  id: string
+  createdAt: number
+  cleanedText: string
+  transcript: string
+  status: 'pending' | 'completed' | 'failed'
+  errorDetail?: string
+  audio?: { fileName: string }
+}): MainAppStatePayload['history'][number] {
+  return {
+    id: input.id,
+    createdAt: input.createdAt,
+    title: input.transcript.slice(0, 36) || 'Voice transcription',
+    preview: input.cleanedText || input.transcript || '',
+    status: input.status,
+    errorDetail: input.errorDetail,
+    hasAudio: Boolean(input.audio?.fileName)
+  }
+}
+
+function buildHistoryPage(input: {
+  items: Array<{
+    id: string
+    createdAt: number
+    cleanedText: string
+    transcript: string
+    status: 'pending' | 'completed' | 'failed'
+    errorDetail?: string
+    audio?: { fileName: string }
+  }>
+  totalCount: number
+}): HistoryPagePayload {
+  return {
+    items: input.items.map(toHistoryListItem),
+    totalCount: input.totalCount
+  }
+}
+
 function buildMainAppState(input: {
+  appInfo: AppInfoPayload
   registeredHotkey: TriggerKey | null
   hotkeyReady: boolean
+  selectedProvider: ProviderKind
+  selectedMicrophone: {
+    deviceId: string | null
+    label: string | null
+  }
   themeMode: ThemeMode
+  postProcessPreset: import('../ipc/channels').PostProcessPresetId
+  postProcessPresets: PostProcessPresetRecord[]
   providers: { asr: string; llm: string }
-  dashscopeConfigured: boolean
+  providerConfigured: boolean
+  providerKeyLabel: string | null
   dashscopeKeyLabel: string | null
+  openAiKeyLabel: string | null
   onboardingCompleted: boolean
   onboardingVisible: boolean
   permissions: AppPermissionSnapshot
+  autoUpdate: MainAppStatePayload['autoUpdate']
   history: Array<{
     id: string
     createdAt: number
@@ -206,12 +282,33 @@ function buildMainAppState(input: {
     audio?: { fileName: string }
   }>
 }): MainAppStatePayload {
+  const historyByTime = [...input.history].sort((a, b) => b.createdAt - a.createdAt)
+  const wordsSpoken = historyByTime.reduce(
+    (sum, item) => sum + countWords(item.cleanedText || item.transcript || ''),
+    0
+  )
+  const averageWpm = (() => {
+    if (historyByTime.length < 2 || wordsSpoken === 0) {
+      return null
+    }
+
+    const oldestCreatedAt = historyByTime[historyByTime.length - 1]?.createdAt ?? 0
+    const newestCreatedAt = historyByTime[0]?.createdAt ?? 0
+    const elapsedMs = newestCreatedAt - oldestCreatedAt
+    if (elapsedMs <= 0) {
+      return null
+    }
+
+    return Math.max(1, Math.round(wordsSpoken / (elapsedMs / 60000)))
+  })()
   const missingPermissions = [
     input.permissions.accessibility.granted ? null : 'Accessibility',
     input.permissions.microphone.granted ? null : 'Microphone'
   ].filter(Boolean) as string[]
+  const providerLabel = PROVIDER_LABELS[input.selectedProvider]
 
   return {
+    appInfo: input.appInfo,
     hotkeyHint:
       input.hotkeyReady && input.registeredHotkey
         ? buildHotkeyHint(input.registeredHotkey)
@@ -221,33 +318,50 @@ function buildMainAppState(input: {
       input.hotkeyReady && input.registeredHotkey
         ? getTriggerKeyLabel(input.registeredHotkey)
         : null,
+    selectedProvider: input.selectedProvider,
+    microphone: {
+      selectedDeviceId: input.selectedMicrophone.deviceId,
+      selectedDeviceLabel: input.selectedMicrophone.label
+    },
     providerLabels: {
       asr: input.providers.asr,
       llm: input.providers.llm
     },
     dashscope: {
-      configured: input.dashscopeConfigured,
+      configured:
+        input.selectedProvider === 'dashscope'
+          ? input.providerConfigured
+          : Boolean(input.dashscopeKeyLabel),
       keyLabel: input.dashscopeKeyLabel
+    },
+    openai: {
+      configured:
+        input.selectedProvider === 'openai'
+          ? input.providerConfigured
+          : Boolean(input.openAiKeyLabel),
+      keyLabel: input.openAiKeyLabel
     },
     onboarding: {
       completed: input.onboardingCompleted,
       visible: input.onboardingVisible
     },
     themeMode: input.themeMode,
+    postProcessPreset: input.postProcessPreset,
+    postProcessPresets: input.postProcessPresets.map((preset) => ({ ...preset })),
     voiceBackendStatus:
-      input.dashscopeConfigured && input.onboardingCompleted && !input.permissions.hasMissing
+      input.providerConfigured && input.onboardingCompleted && !input.permissions.hasMissing
         ? {
             ready: true,
             label: 'Voice typing ready',
-            detail: 'Your DashScope key is configured and ready for voice typing.'
+            detail: `${providerLabel.name} is configured and ready for voice typing.`
           }
-        : input.dashscopeConfigured && input.onboardingCompleted
+        : input.providerConfigured && input.onboardingCompleted
           ? {
               ready: false,
               label: 'Permissions required',
               detail: `Enable ${missingPermissions.join(' and ')} in System Settings to finish voice typing setup.`
             }
-          : input.dashscopeConfigured
+          : input.providerConfigured
             ? {
                 ready: false,
                 label: 'Finish setup to enable voice typing',
@@ -255,23 +369,21 @@ function buildMainAppState(input: {
               }
             : {
                 ready: false,
-                label: 'DashScope key required',
-                detail: 'Add your DashScope API key in onboarding or settings to start dictating.'
+                label: providerLabel.missingKeyLabel,
+                detail: `Add your ${providerLabel.name} API key in onboarding or settings to start dictating.`
               },
+    historySummary: {
+      totalCount: historyByTime.length,
+      wordsSpoken,
+      averageWpm
+    },
     permissions: {
       hasMissing: input.permissions.hasMissing,
       accessibility: buildPermissionState(input.permissions.accessibility),
       microphone: buildPermissionState(input.permissions.microphone)
     },
-    history: input.history.map((item) => ({
-      id: item.id,
-      createdAt: item.createdAt,
-      title: item.transcript.slice(0, 36) || 'Voice transcription',
-      preview: item.cleanedText || item.transcript || '',
-      status: item.status,
-      errorDetail: item.errorDetail,
-      hasAudio: Boolean(item.audio?.fileName)
-    }))
+    autoUpdate: input.autoUpdate,
+    history: historyByTime.slice(0, HISTORY_PAGE_SIZE).map(toHistoryListItem)
   }
 }
 
@@ -322,7 +434,7 @@ export async function bootstrapApplication(): Promise<void> {
   }
 
   const settingsStore = createSettingsStore(env.pushToTalkKey, app.getPath('userData'))
-  const startupTriggerKey = resolveStartupTriggerKey({
+  let activeTriggerKey = resolveStartupTriggerKey({
     configuredHotkey: settingsStore.get().hotkey,
     fallbackHotkey: env.pushToTalkKey
   })
@@ -332,7 +444,7 @@ export async function bootstrapApplication(): Promise<void> {
   })
   let isQuitting = false
   let hotkeyReady = true
-  let registeredTriggerKey: TriggerKey | null = startupTriggerKey
+  let registeredTriggerKey: TriggerKey | null = activeTriggerKey
   let onboardingDialogVisible = !settingsStore.isOnboardingComplete()
   let accessibilityDialogVisible = false
   let accessibilityCheckInFlight: Promise<void> | null = null
@@ -378,8 +490,20 @@ export async function bootstrapApplication(): Promise<void> {
     bringMainWindowToFront()
   }
 
+  const getSelectedProvider = (): ProviderKind => settingsStore.getProvider()
+
+  const isProviderConfigured = (provider: ProviderKind): boolean => {
+    return provider === 'openai'
+      ? settingsStore.hasOpenAiApiKey()
+      : settingsStore.hasDashscopeApiKey()
+  }
+
+  const hasActiveProviderKey = (): boolean => {
+    return isProviderConfigured(getSelectedProvider())
+  }
+
   const shouldEnableGlobalFeatures = (): boolean => {
-    return settingsStore.isOnboardingComplete() && settingsStore.hasDashscopeApiKey()
+    return settingsStore.isOnboardingComplete() && hasActiveProviderKey()
   }
 
   const resolveAccessibilityDialogWindow = (): BrowserWindow | null => {
@@ -674,17 +798,32 @@ export async function bootstrapApplication(): Promise<void> {
 
   const syncAppState = (): void => {
     const settings = settingsStore.get()
+    const selectedProvider = settings.provider
     windowManager.setAppState(
       buildMainAppState({
+        appInfo: {
+          name: app.getName(),
+          version: app.getVersion()
+        },
         registeredHotkey: registeredTriggerKey,
         hotkeyReady,
+        selectedProvider,
+        selectedMicrophone: settings.microphone,
         themeMode: settings.themeMode,
+        postProcessPreset: settings.postProcessPreset,
+        postProcessPresets: settings.postProcessPresets,
         providers: settings.providers,
-        dashscopeConfigured: Boolean(settings.dashscopeApiKey),
+        providerConfigured: isProviderConfigured(selectedProvider),
+        providerKeyLabel:
+          selectedProvider === 'openai'
+            ? settingsStore.getOpenAiKeyLabel()
+            : settingsStore.getDashscopeKeyLabel(),
         dashscopeKeyLabel: settingsStore.getDashscopeKeyLabel(),
+        openAiKeyLabel: settingsStore.getOpenAiKeyLabel(),
         onboardingCompleted: settingsStore.isOnboardingComplete(),
         onboardingVisible: onboardingDialogVisible,
         permissions: getAppPermissionSnapshot(),
+        autoUpdate: getAutoUpdateState(),
         history: settings.history
       })
     )
@@ -725,18 +864,54 @@ export async function bootstrapApplication(): Promise<void> {
 
     return apiKey
   }
+  const resolveOpenAiApiKey = async (): Promise<string> => {
+    const apiKey = settingsStore.getOpenAiApiKey()
+    if (!apiKey) {
+      throw new Error('OpenAI API key is unavailable.')
+    }
+
+    return apiKey
+  }
+  const getCurrentProviderKeyResolver = (): (() => Promise<string>) => {
+    return getSelectedProvider() === 'openai' ? resolveOpenAiApiKey : resolveDashscopeApiKey
+  }
+  const qwenAsrProvider = createQwenAsrProvider({
+    apiKey: resolveDashscopeApiKey,
+    baseUrl: env.dashscopeBaseUrl
+  })
+  const openAiAsrProvider = createOpenAiAsrProvider({
+    apiKey: resolveOpenAiApiKey
+  })
+  const qwenCleanupProvider = createQwenCleanupProvider({
+    apiKey: resolveDashscopeApiKey,
+    baseUrl: env.dashscopeBaseUrl,
+    postProcessPreset: () => settingsStore.getSelectedPostProcessPreset()
+  })
+  const openAiCleanupProvider = createOpenAiCleanupProvider({
+    apiKey: resolveOpenAiApiKey,
+    postProcessPreset: () => settingsStore.getSelectedPostProcessPreset()
+  })
+  const getCurrentAsrProvider = () => {
+    return getSelectedProvider() === 'openai' ? openAiAsrProvider : qwenAsrProvider
+  }
+  const getCurrentLlmProvider = () => {
+    return getSelectedProvider() === 'openai' ? openAiCleanupProvider : qwenCleanupProvider
+  }
 
   const startDictation = async (source: 'global' | 'onboarding'): Promise<void> => {
     if (source === 'global' && !shouldEnableGlobalFeatures()) {
       logDebug('hotkey', 'Ignored global dictation trigger before setup completed', {
         onboardingCompleted: settingsStore.isOnboardingComplete(),
-        dashscopeConfigured: settingsStore.hasDashscopeApiKey()
+        selectedProvider: getSelectedProvider(),
+        providerConfigured: hasActiveProviderKey()
       })
       return
     }
 
-    if (source === 'onboarding' && !settingsStore.hasDashscopeApiKey()) {
-      logDebug('hotkey', 'Ignored onboarding dictation trigger before DashScope key was saved')
+    if (source === 'onboarding' && !hasActiveProviderKey()) {
+      logDebug('hotkey', 'Ignored onboarding dictation trigger before provider key was saved', {
+        selectedProvider: getSelectedProvider()
+      })
       return
     }
 
@@ -747,7 +922,8 @@ export async function bootstrapApplication(): Promise<void> {
 
     windowManager.showRecordingBar({
       type: 'start',
-      startedAt: Date.now()
+      startedAt: Date.now(),
+      deviceId: settingsStore.getMicrophone().deviceId
     })
   }
 
@@ -764,14 +940,12 @@ export async function bootstrapApplication(): Promise<void> {
   const voicePipeline = createVoicePipeline({
     contextProvider,
     sessionStore,
-    asrProvider: createQwenAsrProvider({
-      apiKey: resolveDashscopeApiKey,
-      baseUrl: env.dashscopeBaseUrl
-    }),
-    llmProvider: createQwenCleanupProvider({
-      apiKey: resolveDashscopeApiKey,
-      baseUrl: env.dashscopeBaseUrl
-    }),
+    asrProvider: {
+      transcribe: (artifact) => getCurrentAsrProvider().transcribe(artifact)
+    },
+    llmProvider: {
+      transform: (request) => getCurrentLlmProvider().transform(request)
+    },
     actionExecutor: createNutPasteExecutor({
       platform: process.platform
     }),
@@ -796,25 +970,41 @@ export async function bootstrapApplication(): Promise<void> {
     },
     prepareBeforeTranscribe: async () => {
       try {
-        await resolveDashscopeApiKey()
+        await getCurrentProviderKeyResolver()()
       } catch (error) {
-        logDebug('voice-pipeline', 'Failed to resolve DashScope API key before ASR call', error)
+        logDebug('voice-pipeline', 'Failed to resolve provider API key before ASR call', {
+          selectedProvider: getSelectedProvider(),
+          error
+        })
         throw error
       }
     }
   })
 
   logDebug('hotkey', 'Resolved dictation trigger key', {
-    triggerKey: startupTriggerKey,
-    label: getTriggerKeyLabel(startupTriggerKey)
+    triggerKey: activeTriggerKey,
+    label: getTriggerKeyLabel(activeTriggerKey)
   })
-  const hotkeyService = createGlobalHotkeyService({
-    triggerKey: startupTriggerKey,
-    hook: uIOhook,
-    onStart: async () => startDictation('global'),
-    onStop: async () => stopDictation('global')
-  })
+  const createHotkeyService = (triggerKey: TriggerKey) =>
+    createGlobalHotkeyService({
+      triggerKey,
+      hook: uIOhook,
+      onStart: async () => startDictation('global'),
+      onStop: async () => stopDictation('global')
+    })
+  let hotkeyService = createHotkeyService(activeTriggerKey)
   let hotkeyServiceStarted = false
+
+  const rebuildGlobalHotkeyService = (): void => {
+    if (hotkeyServiceStarted) {
+      hotkeyService.stop()
+      hotkeyServiceStarted = false
+    }
+
+    hotkeyService = createHotkeyService(activeTriggerKey)
+    hotkeyReady = true
+    registeredTriggerKey = activeTriggerKey
+  }
 
   const syncGlobalHotkeyService = (): void => {
     const shouldStart = hotkeyReady && shouldEnableGlobalFeatures()
@@ -838,14 +1028,14 @@ export async function bootstrapApplication(): Promise<void> {
       hotkeyService.start()
       hotkeyServiceStarted = true
       logDebug('hotkey', 'Started global hotkey service', {
-        triggerKey: startupTriggerKey,
+        triggerKey: activeTriggerKey,
         platform: process.platform
       })
     } catch (error) {
       hotkeyReady = false
       registeredTriggerKey = null
       logDebug('hotkey', 'Failed to start the global hotkey service', {
-        triggerKey: startupTriggerKey,
+        triggerKey: activeTriggerKey,
         platform: process.platform,
         error
       })
@@ -858,6 +1048,10 @@ export async function bootstrapApplication(): Promise<void> {
   registerMainIpc({
     getAppState: () => windowManager.getAppState(),
     getChatState: () => windowManager.getChatState(),
+    getHistoryPage: (input) => {
+      const page = settingsStore.getHistoryPage(input)
+      return buildHistoryPage(page)
+    },
     getHistoryEntryDebug: async (entryId) => {
       const entry = settingsStore.getHistoryEntry(entryId)
       if (!entry) {
@@ -894,9 +1088,49 @@ export async function bootstrapApplication(): Promise<void> {
       settingsStore.setThemeMode(themeMode)
       syncAppState()
     },
+    setPostProcessPreset: (presetId) => {
+      settingsStore.setPostProcessPreset(presetId)
+      syncAppState()
+    },
+    savePostProcessPreset: (input) => {
+      const preset = settingsStore.savePostProcessPreset(input)
+      syncAppState()
+      return preset
+    },
+    resetPostProcessPreset: (presetId) => {
+      const preset = settingsStore.resetPostProcessPreset(presetId)
+      syncAppState()
+      return preset
+    },
+    createPostProcessPreset: (input) => {
+      const preset = settingsStore.createPostProcessPreset(input)
+      syncAppState()
+      return preset
+    },
+    setHotkey: (hotkey) => {
+      settingsStore.setHotkey(hotkey)
+      activeTriggerKey = hotkey
+      rebuildGlobalHotkeyService()
+      syncGlobalHotkeyService()
+      syncAppState()
+    },
+    setMicrophone: (value) => {
+      settingsStore.setMicrophone(value)
+      syncAppState()
+    },
+    setProvider: (provider) => {
+      settingsStore.setProvider(provider)
+      syncGlobalHotkeyService()
+      syncAppState()
+      void ensureAccessibilityPermission('focus')
+      void ensureMicrophonePermission('focus')
+    },
     getProviderSetup: () => ({
-      configured: settingsStore.hasDashscopeApiKey(),
-      keyLabel: settingsStore.getDashscopeKeyLabel()
+      configured: hasActiveProviderKey(),
+      keyLabel:
+        getSelectedProvider() === 'openai'
+          ? settingsStore.getOpenAiKeyLabel()
+          : settingsStore.getDashscopeKeyLabel()
     }),
     saveDashscopeApiKey: (apiKey) => {
       settingsStore.setDashscopeApiKey(apiKey)
@@ -907,6 +1141,17 @@ export async function bootstrapApplication(): Promise<void> {
       return {
         configured: settingsStore.hasDashscopeApiKey(),
         keyLabel: settingsStore.getDashscopeKeyLabel()
+      }
+    },
+    saveOpenAiApiKey: (apiKey) => {
+      settingsStore.setOpenAiApiKey(apiKey)
+      syncAppState()
+      syncGlobalHotkeyService()
+      void ensureAccessibilityPermission('focus')
+      void ensureMicrophonePermission('focus')
+      return {
+        configured: settingsStore.hasOpenAiApiKey(),
+        keyLabel: settingsStore.getOpenAiKeyLabel()
       }
     },
     completeOnboarding: () => {
@@ -941,6 +1186,14 @@ export async function bootstrapApplication(): Promise<void> {
 
       await openPermissionSettingsPanel(permission)
       syncAppState()
+    },
+    checkForUpdates: async () => {
+      const nextState = await checkForAutoUpdates()
+      syncAppState()
+      return nextState
+    },
+    restartToUpdate: async () => {
+      await restartToInstallUpdate()
     },
     resetOnboarding: () => {
       if (!is.dev) {
@@ -997,9 +1250,13 @@ export async function bootstrapApplication(): Promise<void> {
     console.error(`[shortcut] Failed to register "${SHOW_MAIN_WINDOW_SHORTCUT}" to open the app.`)
   }
 
+  initializeAutoUpdater({
+    onStateChange: () => {
+      syncAppState()
+    }
+  })
   syncAppState()
   bringMainWindowToFront()
-  initializeAutoUpdater()
   syncGlobalHotkeyService()
 
   mainAppWindow.on('close', (event) => {

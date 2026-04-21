@@ -1,6 +1,6 @@
 {
   "name": "tia-voice",
-  "version": "1.0.35",
+  "version": "1.1.0",
   "description": "TIA context-aware voice assistant built with Electron, React, and TypeScript",
   "main": "./out/main/index.js",
   "author": "example.com",
@@ -26,6 +26,7 @@
     "build:linux": "electron-vite build && electron-builder --linux && npm run verify:packaged-runtime-deps -- dist"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^3.0.53",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@jimp/custom": "^0.22.12",
@@ -42,6 +43,7 @@
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-tooltip": "^1.2.8",
+    "ai": "^6.0.168",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
     "atomically": "^2.1.1",

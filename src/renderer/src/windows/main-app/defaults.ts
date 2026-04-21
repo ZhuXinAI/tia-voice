@@ -1,9 +1,18 @@
 import type { DictionaryPhrase, MainAppState } from './types'
 
 export const defaultMainAppState: MainAppState = {
+  appInfo: {
+    name: 'TIA Voice',
+    version: '0.0.0'
+  },
   hotkeyHint: 'Hold the push-to-talk key to dictate into the current app.',
   registeredHotkey: null,
   registeredHotkeyLabel: null,
+  selectedProvider: 'dashscope',
+  microphone: {
+    selectedDeviceId: null,
+    selectedDeviceLabel: null
+  },
   providerLabels: {
     asr: 'qwen3-asr-flash',
     llm: 'qwen-plus'
@@ -12,15 +21,41 @@ export const defaultMainAppState: MainAppState = {
     configured: false,
     keyLabel: null
   },
+  openai: {
+    configured: false,
+    keyLabel: null
+  },
   onboarding: {
     completed: false,
     visible: true
   },
   themeMode: 'system',
+  postProcessPreset: 'formal',
+  postProcessPresets: [
+    {
+      id: 'formal',
+      name: 'Formal',
+      systemPrompt:
+        'Prefer polished punctuation, complete sentences, and a professional tone while preserving the speaker intent, wording, and meaning.',
+      builtIn: true
+    },
+    {
+      id: 'casual',
+      name: 'Casual',
+      systemPrompt:
+        'Prefer a conversational, relaxed tone with lighter punctuation and natural shorthand when it fits, while preserving the speaker intent, wording, and meaning.',
+      builtIn: true
+    }
+  ],
   voiceBackendStatus: {
     ready: false,
     label: 'DashScope key required',
     detail: 'Add your DashScope API key in onboarding or settings to start dictating.'
+  },
+  historySummary: {
+    totalCount: 0,
+    wordsSpoken: 0,
+    averageWpm: null
   },
   permissions: {
     hasMissing: true,
@@ -40,6 +75,15 @@ export const defaultMainAppState: MainAppState = {
       description: 'Enable microphone access in System Settings so TIA Voice can capture speech.',
       ctaLabel: 'Request Microphone Permission'
     }
+  },
+  autoUpdate: {
+    status: 'unsupported',
+    currentVersion: '0.0.0',
+    availableVersion: null,
+    releaseDate: null,
+    lastCheckedAt: null,
+    downloadProgressPercent: null,
+    message: 'Automatic updates are only available in packaged builds.'
   },
   history: []
 }

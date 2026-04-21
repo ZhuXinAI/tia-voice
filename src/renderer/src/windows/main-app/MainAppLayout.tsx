@@ -9,18 +9,39 @@ import type { DashscopeSetupState, MainAppState, SettingsSection } from './types
 
 type MainAppLayoutProps = {
   dashscope: DashscopeSetupState
+  openai: DashscopeSetupState
+  selectedProvider: MainAppState['selectedProvider']
+  postProcessPreset: MainAppState['postProcessPreset']
+  postProcessPresets: MainAppState['postProcessPresets']
   onOpenSettings: (section?: SettingsSection) => void
   permissions: MainAppState['permissions']
   voiceBackendStatus: MainAppState['voiceBackendStatus']
+  autoUpdate: MainAppState['autoUpdate']
+  onRestartToUpdate: () => Promise<void>
 }
 
 export function MainAppLayout(props: MainAppLayoutProps): React.JSX.Element {
-  const { dashscope, onOpenSettings, permissions, voiceBackendStatus } = props
+  const {
+    dashscope,
+    openai,
+    selectedProvider,
+    postProcessPreset,
+    postProcessPresets,
+    onOpenSettings,
+    permissions,
+    voiceBackendStatus,
+    autoUpdate,
+    onRestartToUpdate
+  } = props
   const location = useLocation()
 
   const currentSectionTitle = useMemo(() => {
     if (location.pathname.startsWith('/dictionary')) {
       return 'Dictionary'
+    }
+
+    if (location.pathname.startsWith('/presets')) {
+      return 'Presets'
     }
 
     return 'Home'
@@ -30,8 +51,14 @@ export function MainAppLayout(props: MainAppLayoutProps): React.JSX.Element {
     <SidebarProvider defaultOpen className="h-svh bg-background text-foreground">
       <MainSidebar
         dashscope={dashscope}
+        openai={openai}
+        selectedProvider={selectedProvider}
+        postProcessPreset={postProcessPreset}
+        postProcessPresets={postProcessPresets}
         onOpenSettings={onOpenSettings}
         permissions={permissions}
+        autoUpdate={autoUpdate}
+        onRestartToUpdate={onRestartToUpdate}
       />
 
       <SidebarInset className="h-svh overflow-hidden bg-background">

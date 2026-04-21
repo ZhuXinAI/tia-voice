@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Keyboard, Languages, Mic2, Settings2, ShieldAlert, SunMoon } from 'lucide-react'
+import { Info, Keyboard, Languages, Mic2, Settings2, ShieldAlert, SunMoon } from 'lucide-react'
 
 import { Button } from '@renderer/components/ui/button'
 import { Card, CardContent } from '@renderer/components/ui/card'
@@ -15,34 +15,80 @@ import { Separator } from '@renderer/components/ui/separator'
 import { Switch } from '@renderer/components/ui/switch'
 import { cn } from '@renderer/lib/utils'
 
+import { AboutSettingsSection } from './AboutSettingsSection'
 import type { DashscopeSetupState, MainAppState, SettingsSection } from './types'
-import type { ThemeMode } from '../../../../preload/index'
+import type { ProviderKind, ThemeMode, TriggerKey } from '../../../../preload/index'
 
 type SettingsDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   section: SettingsSection
   onSectionChange: (section: SettingsSection) => void
+  registeredHotkey: TriggerKey | null
+  selectedProvider: ProviderKind
+  selectedMicrophone: {
+    deviceId: string | null
+    label: string | null
+  }
+  microphoneOptions: Array<{
+    deviceId: string | null
+    label: string
+  }>
   dashscope: DashscopeSetupState
+  openai: DashscopeSetupState
   permissions: MainAppState['permissions']
+  appInfo: MainAppState['appInfo']
+  autoUpdate: MainAppState['autoUpdate']
   themeMode: ThemeMode
   onThemeModeChange: (themeMode: ThemeMode) => Promise<void>
+  onHotkeyChange: (hotkey: TriggerKey) => Promise<void>
+  onMicrophoneChange: (input: { deviceId: string | null; label: string | null }) => Promise<void>
+  onProviderChange: (provider: ProviderKind) => Promise<void>
   onSaveDashscopeApiKey: (apiKey: string) => Promise<void>
+  onSaveOpenAiApiKey: (apiKey: string) => Promise<void>
   onOpenPermissionSettings: (permission: 'accessibility' | 'microphone') => Promise<void>
+  onCheckForUpdates: () => Promise<void>
+  onRestartToUpdate: () => Promise<void>
   onOpenOnboarding: () => Promise<void>
   onResetOnboarding: () => Promise<void>
 }
 
-const shortcutOptions = [
-  'Hold fn and speak',
-  'Press and hold right Option',
-  'Double tap right Option'
+const shortcutOptions: Array<{
+  id: TriggerKey
+  label: string
+  detail: string
+}> = [
+  {
+    id: 'MetaRight',
+    label: 'Right Command',
+    detail: 'Default on macOS for push-to-talk.'
+  },
+  {
+    id: 'AltRight',
+    label: 'Right Option',
+    detail: 'Alternative shortcut if Command conflicts with your setup.'
+  }
 ]
-const microphoneOptions = ['Built-in mic (recommended)', 'External USB microphone', 'AirPods Pro']
 const languageOptions = [
   'English · Chinese - Simplified (简体中文)',
   'English only',
   'Chinese - Simplified only'
+]
+const providerOptions: Array<{
+  id: ProviderKind
+  label: string
+  detail: string
+}> = [
+  {
+    id: 'dashscope',
+    label: 'DashScope',
+    detail: 'Current production provider.'
+  },
+  {
+    id: 'openai',
+    label: 'OpenAI',
+    detail: 'Beta provider powered through the AI SDK.'
+  }
 ]
 const themeOptions: Array<{
   id: ThemeMode
@@ -85,6 +131,11 @@ const settingsMenu: Array<{
     id: 'permissions',
     label: 'Permissions',
     icon: ShieldAlert
+  },
+  {
+    id: 'about',
+    label: 'About',
+    icon: Info
   }
 ]
 
@@ -94,22 +145,37 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
     onOpenChange,
     section,
     onSectionChange,
+    registeredHotkey,
+    selectedProvider,
+    selectedMicrophone,
+    microphoneOptions,
     dashscope,
+    openai,
     permissions,
+    appInfo,
+    autoUpdate,
     themeMode,
     onThemeModeChange,
+    onHotkeyChange,
+    onMicrophoneChange,
+    onProviderChange,
     onSaveDashscopeApiKey,
+    onSaveOpenAiApiKey,
     onOpenPermissionSettings,
+    onCheckForUpdates,
+    onRestartToUpdate,
     onOpenOnboarding,
     onResetOnboarding
   } = props
 
-  const [shortcutsIndex, setShortcutsIndex] = useState(0)
-  const [micIndex, setMicIndex] = useState(0)
   const [languageIndex, setLanguageIndex] = useState(0)
   const [themePending, setThemePending] = useState(false)
-  const [apiKeyDraft, setApiKeyDraft] = useState('')
-  const [providerSavePending, setProviderSavePending] = useState(false)
+  const [hotkeyPending, setHotkeyPending] = useState<TriggerKey | null>(null)
+  const [microphonePending, setMicrophonePending] = useState<string | null>(null)
+  const [providerPending, setProviderPending] = useState<ProviderKind | null>(null)
+  const [dashscopeApiKeyDraft, setDashscopeApiKeyDraft] = useState('')
+  const [openAiApiKeyDraft, setOpenAiApiKeyDraft] = useState('')
+  const [providerSavePending, setProviderSavePending] = useState<ProviderKind | null>(null)
   const [providerSaveError, setProviderSaveError] = useState<string | null>(null)
   const [permissionActionPending, setPermissionActionPending] = useState<
     'accessibility' | 'microphone' | null
@@ -120,6 +186,9 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
 
   const activeThemeDetail =
     themeOptions.find((option) => option.id === themeMode)?.detail ?? themeOptions[0].detail
+  const selectedShortcut =
+    shortcutOptions.find((option) => option.id === registeredHotkey) ?? shortcutOptions[0]
+  const selectedMicrophoneLabel = selectedMicrophone.label ?? 'System default microphone'
 
   const handleThemeModeChange = async (nextMode: ThemeMode): Promise<void> => {
     if (nextMode === themeMode || themePending) {
@@ -135,23 +204,88 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
     }
   }
 
-  const handleSaveDashscopeKey = async (): Promise<void> => {
-    if (!apiKeyDraft.trim() || providerSavePending) {
+  const handleHotkeyChange = async (hotkey: TriggerKey): Promise<void> => {
+    if (hotkey === registeredHotkey || hotkeyPending) {
       return
     }
 
-    setProviderSavePending(true)
+    setHotkeyPending(hotkey)
+
+    try {
+      await onHotkeyChange(hotkey)
+    } finally {
+      setHotkeyPending(null)
+    }
+  }
+
+  const handleMicrophoneChange = async (deviceId: string | null, label: string): Promise<void> => {
+    if (microphonePending || selectedMicrophone.deviceId === deviceId) {
+      return
+    }
+
+    setMicrophonePending(deviceId ?? '__default__')
+
+    try {
+      await onMicrophoneChange({
+        deviceId,
+        label: deviceId ? label : null
+      })
+    } finally {
+      setMicrophonePending(null)
+    }
+  }
+
+  const handleProviderChange = async (provider: ProviderKind): Promise<void> => {
+    if (provider === selectedProvider || providerPending) {
+      return
+    }
+
+    setProviderPending(provider)
+
+    try {
+      await onProviderChange(provider)
+    } finally {
+      setProviderPending(null)
+    }
+  }
+
+  const handleSaveDashscopeKey = async (): Promise<void> => {
+    if (!dashscopeApiKeyDraft.trim() || providerSavePending) {
+      return
+    }
+
+    setProviderSavePending('dashscope')
     setProviderSaveError(null)
 
     try {
-      await onSaveDashscopeApiKey(apiKeyDraft)
-      setApiKeyDraft('')
+      await onSaveDashscopeApiKey(dashscopeApiKeyDraft)
+      setDashscopeApiKeyDraft('')
     } catch (error) {
       setProviderSaveError(
         error instanceof Error ? error.message : 'Unable to save your DashScope API key right now.'
       )
     } finally {
-      setProviderSavePending(false)
+      setProviderSavePending(null)
+    }
+  }
+
+  const handleSaveOpenAiKey = async (): Promise<void> => {
+    if (!openAiApiKeyDraft.trim() || providerSavePending) {
+      return
+    }
+
+    setProviderSavePending('openai')
+    setProviderSaveError(null)
+
+    try {
+      await onSaveOpenAiApiKey(openAiApiKeyDraft)
+      setOpenAiApiKeyDraft('')
+    } catch (error) {
+      setProviderSaveError(
+        error instanceof Error ? error.message : 'Unable to save your OpenAI API key right now.'
+      )
+    } finally {
+      setProviderSavePending(null)
     }
   }
 
@@ -261,44 +395,55 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
 
                     <Separator />
 
-                    <div className="flex items-center gap-4 p-5">
+                    <div className="items-start gap-4 p-5 md:flex">
                       <Keyboard className="h-5 w-5 text-muted-foreground" />
-                      <div className="flex-1">
+                      <div className="mt-4 flex-1 space-y-3 md:mt-0">
                         <p className="font-medium">Shortcuts</p>
-                        <p className="text-sm text-muted-foreground">
-                          {shortcutOptions[shortcutsIndex]}
-                        </p>
+                        <p className="text-sm text-muted-foreground">{selectedShortcut.detail}</p>
+                        <div className="flex flex-wrap gap-2">
+                          {shortcutOptions.map((option) => (
+                            <Button
+                              key={option.id}
+                              type="button"
+                              variant={registeredHotkey === option.id ? 'secondary' : 'outline'}
+                              disabled={hotkeyPending !== null}
+                              onClick={() => void handleHotkeyChange(option.id)}
+                            >
+                              {hotkeyPending === option.id ? 'Saving…' : option.label}
+                            </Button>
+                          ))}
+                        </div>
                       </div>
-                      <Button
-                        variant="outline"
-                        type="button"
-                        onClick={() =>
-                          setShortcutsIndex((index) => (index + 1) % shortcutOptions.length)
-                        }
-                      >
-                        Change
-                      </Button>
                     </div>
 
                     <Separator />
 
-                    <div className="flex items-center gap-4 p-5">
+                    <div className="items-start gap-4 p-5 md:flex">
                       <Mic2 className="h-5 w-5 text-muted-foreground" />
-                      <div className="flex-1">
+                      <div className="mt-4 flex-1 space-y-3 md:mt-0">
                         <p className="font-medium">Microphone</p>
-                        <p className="text-sm text-muted-foreground">
-                          {microphoneOptions[micIndex]}
-                        </p>
+                        <p className="text-sm text-muted-foreground">{selectedMicrophoneLabel}</p>
+                        <div className="flex flex-wrap gap-2">
+                          {microphoneOptions.map((option) => {
+                            const isSelected = selectedMicrophone.deviceId === option.deviceId
+                            const optionKey = option.deviceId ?? '__default__'
+
+                            return (
+                              <Button
+                                key={optionKey}
+                                type="button"
+                                variant={isSelected ? 'secondary' : 'outline'}
+                                disabled={microphonePending !== null}
+                                onClick={() =>
+                                  void handleMicrophoneChange(option.deviceId, option.label)
+                                }
+                              >
+                                {microphonePending === optionKey ? 'Saving…' : option.label}
+                              </Button>
+                            )
+                          })}
+                        </div>
                       </div>
-                      <Button
-                        variant="outline"
-                        type="button"
-                        onClick={() =>
-                          setMicIndex((index) => (index + 1) % microphoneOptions.length)
-                        }
-                      >
-                        Change
-                      </Button>
                     </div>
 
                     <Separator />
@@ -331,12 +476,52 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
                 <div>
                   <h2 className="text-3xl font-semibold">Providers</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    TIA Voice currently supports DashScope only. OpenAI support will land later.
+                    Choose the voice stack you want TIA Voice to use, then save the matching API key
+                    locally on this device.
                   </p>
                 </div>
 
                 <Card className="border-border/70 bg-card/70">
                   <CardContent className="space-y-5 p-5">
+                    <div className="space-y-2">
+                      <p className="font-medium">Active provider</p>
+                      <p className="text-sm text-muted-foreground">
+                        Switching providers updates both transcription and PostProcess models.
+                      </p>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {providerOptions.map((option) => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          className={cn(
+                            'rounded-2xl border p-4 text-left transition-colors',
+                            selectedProvider === option.id
+                              ? 'border-foreground/30 bg-background text-foreground'
+                              : 'border-border/70 bg-background/50 text-muted-foreground hover:border-border hover:text-foreground'
+                          )}
+                          disabled={providerPending !== null}
+                          onClick={() => void handleProviderChange(option.id)}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="font-medium">{option.label}</p>
+                            {selectedProvider === option.id ? (
+                              <span className="rounded-full bg-muted px-2 py-0.5 text-xs">
+                                Active
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="mt-2 text-sm">{option.detail}</p>
+                          {providerPending === option.id ? (
+                            <p className="mt-3 text-xs text-muted-foreground">Switching…</p>
+                          ) : null}
+                        </button>
+                      ))}
+                    </div>
+
+                    <Separator />
+
                     <div className="space-y-1">
                       <p className="font-medium">DashScope API key</p>
                       <p className="text-sm text-muted-foreground">
@@ -349,8 +534,8 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
                       <span>Replace saved key</span>
                       <Input
                         type="password"
-                        value={apiKeyDraft}
-                        onChange={(event) => setApiKeyDraft(event.target.value)}
+                        value={dashscopeApiKeyDraft}
+                        onChange={(event) => setDashscopeApiKeyDraft(event.target.value)}
                         placeholder={
                           dashscope.configured
                             ? 'Enter a new DashScope API key'
@@ -368,18 +553,67 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
                     <div className="flex flex-wrap items-center gap-3">
                       <Button
                         type="button"
-                        disabled={!apiKeyDraft.trim() || providerSavePending}
+                        disabled={!dashscopeApiKeyDraft.trim() || providerSavePending !== null}
                         onClick={() => void handleSaveDashscopeKey()}
                       >
-                        {providerSavePending
+                        {providerSavePending === 'dashscope'
                           ? 'Saving…'
                           : dashscope.configured
                             ? 'Update key'
                             : 'Save key'}
                       </Button>
-                      {dashscope.configured ? (
+                    </div>
+
+                    <Separator />
+
+                    <div className="space-y-1">
+                      <p className="font-medium">OpenAI API key</p>
+                      <p className="text-sm text-muted-foreground">
+                        OpenAI uses the AI SDK integration for `gpt-4o-mini-transcribe` and
+                        `gpt-5-mini`.
+                      </p>
+                    </div>
+
+                    <label className="space-y-2 text-sm font-medium">
+                      <span>Replace saved key</span>
+                      <Input
+                        type="password"
+                        value={openAiApiKeyDraft}
+                        onChange={(event) => setOpenAiApiKeyDraft(event.target.value)}
+                        placeholder={
+                          openai.configured
+                            ? 'Enter a new OpenAI API key'
+                            : 'Enter your OpenAI API key'
+                        }
+                      />
+                    </label>
+
+                    <div className="rounded-xl border border-border/70 bg-background/60 p-4 text-sm text-muted-foreground">
+                      <p>Provider: OpenAI</p>
+                      <p>Status: {openai.keyLabel ?? 'No key saved yet'}</p>
+                      <p>Models: gpt-4o-mini-transcribe + gpt-5-mini</p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button
+                        type="button"
+                        disabled={!openAiApiKeyDraft.trim() || providerSavePending !== null}
+                        onClick={() => void handleSaveOpenAiKey()}
+                      >
+                        {providerSavePending === 'openai'
+                          ? 'Saving…'
+                          : openai.configured
+                            ? 'Update key'
+                            : 'Save key'}
+                      </Button>
+                      {selectedProvider === 'dashscope' && dashscope.configured ? (
                         <span className="text-sm text-muted-foreground">
                           Ready for voice typing
+                        </span>
+                      ) : null}
+                      {selectedProvider === 'openai' && openai.configured ? (
+                        <span className="text-sm text-muted-foreground">
+                          OpenAI beta is ready for voice typing
                         </span>
                       ) : null}
                       <Button
@@ -505,6 +739,15 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
                   </Card>
                 ) : null}
               </div>
+            ) : null}
+
+            {section === 'about' ? (
+              <AboutSettingsSection
+                appInfo={appInfo}
+                autoUpdate={autoUpdate}
+                onCheckForUpdates={onCheckForUpdates}
+                onRestartToUpdate={onRestartToUpdate}
+              />
             ) : null}
           </section>
         </div>

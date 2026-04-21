@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react'
 
 import { WaveformCanvas } from '../components/WaveformCanvas'
-import { reportRecordingFailure, submitRecordingArtifact, subscribeToRecordingCommand } from '../lib/ipc'
+import {
+  reportRecordingFailure,
+  submitRecordingArtifact,
+  subscribeToRecordingCommand
+} from '../lib/ipc'
 import { useMicrophoneRecorder } from '../recording/useMicrophoneRecorder'
 
 export default function RecordingBarWindow(): React.JSX.Element {
@@ -15,7 +19,7 @@ export default function RecordingBarWindow(): React.JSX.Element {
   useEffect(() => {
     return subscribeToRecordingCommand((command) => {
       if (command.type === 'start') {
-        void recorder.start()
+        void recorder.start(command.deviceId)
         return
       }
 
@@ -47,7 +51,10 @@ export default function RecordingBarWindow(): React.JSX.Element {
     <div className="window recording-bar-window" data-testid="recording-bar-window">
       <div className="recording-pill recording-pill--minimal">
         <div className="recording-hud">
-          <span className={`recording-indicator recording-indicator--${phase}`} aria-hidden="true" />
+          <span
+            className={`recording-indicator recording-indicator--${phase}`}
+            aria-hidden="true"
+          />
           {phase === 'processing' ? (
             <div className="recording-loader" aria-label="Processing audio">
               <span className="recording-loader__spinner" />
