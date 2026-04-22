@@ -17,6 +17,11 @@ import {
   resolveSelectedPostProcessPreset,
   type PostProcessPresetRecord
 } from '../providers/llm/postProcessPrompts'
+import {
+  getAvailableLlmModels,
+  getDefaultProviderModels,
+  normalizeProviderLlmModel
+} from '../../shared/providerModels'
 
 export type ProviderKind = 'dashscope' | 'openai'
 
@@ -31,6 +36,7 @@ export type HistoryEntry = {
   transcript: string
   cleanedText: string
   status: 'pending' | 'completed' | 'failed'
+  llmProcessing: 'pending' | 'completed' | 'skipped' | 'failed'
   errorDetail?: string
   audio?: {
     fileName: string
@@ -67,6 +73,9 @@ export type SettingsStore = {
   setHotkey(hotkey: TriggerKey): void
   getProvider(): ProviderKind
   setProvider(provider: ProviderKind): void
+  getProviderModels(provider?: ProviderKind): AppSettings['providers']
+  getAvailableLlmModels(provider: ProviderKind): string[]
+  setProviderLlmModel(provider: ProviderKind, model: string): void
   getMicrophone(): MicrophonePreference
   setMicrophone(preference: MicrophonePreference): void
   appendHistory(entry: HistoryEntry): void
@@ -84,9 +93,14 @@ export type SettingsStore = {
     id: string
     name: string
     systemPrompt: string
+    enablePostProcessing: boolean
   }): PostProcessPresetRecord
   resetPostProcessPreset(presetId: string): PostProcessPresetRecord
-  createPostProcessPreset(input: { name: string; systemPrompt: string }): PostProcessPresetRecord
+  createPostProcessPreset(input: {
+    name: string
+    systemPrompt: string
+    enablePostProcessing: boolean
+  }): PostProcessPresetRecord
   hasDashscopeApiKey(): boolean
   getDashscopeApiKey(): string | null
   getDashscopeKeyLabel(): string | null
@@ -125,6 +139,7 @@ type PersistedSettings = {
   themeMode: ThemeMode
   postProcessPreset?: PostProcessPresetId
   postProcessPresets?: PostProcessPresetRecord[]
+  providerModels?: Partial<Record<ProviderKind, Partial<AppSettings['providers']>>>
   providers: {
     asr: string
     llm: string
@@ -141,14 +156,8 @@ const MAX_HISTORY_ITEMS = 100
 const DEFAULT_HISTORY_PAGE_SIZE = 20
 
 const PROVIDER_MODELS: Record<ProviderKind, AppSettings['providers']> = {
-  dashscope: {
-    asr: 'qwen3-asr-flash',
-    llm: 'qwen-plus'
-  },
-  openai: {
-    asr: 'gpt-4o-mini-transcribe',
-    llm: 'gpt-5-mini'
-  }
+  dashscope: getDefaultProviderModels('dashscope'),
+  openai: getDefaultProviderModels('openai')
 }
 
 function ensureDirectory(path: string): void {
@@ -177,6 +186,11 @@ function sanitizeFileNamePart(value: string): string {
 }
 
 function normalizeHistoryEntry(entry: Partial<HistoryEntry> & { id: string }): HistoryEntry {
+  const status =
+    entry.status === 'pending' || entry.status === 'completed' || entry.status === 'failed'
+      ? entry.status
+      : 'completed'
+
   return {
     id: entry.id,
     createdAt:
@@ -185,10 +199,18 @@ function normalizeHistoryEntry(entry: Partial<HistoryEntry> & { id: string }): H
         : Date.now(),
     transcript: typeof entry.transcript === 'string' ? entry.transcript : '',
     cleanedText: typeof entry.cleanedText === 'string' ? entry.cleanedText : '',
-    status:
-      entry.status === 'pending' || entry.status === 'completed' || entry.status === 'failed'
-        ? entry.status
-        : 'completed',
+    status,
+    llmProcessing:
+      entry.llmProcessing === 'pending' ||
+      entry.llmProcessing === 'completed' ||
+      entry.llmProcessing === 'skipped' ||
+      entry.llmProcessing === 'failed'
+        ? entry.llmProcessing
+        : status === 'pending'
+          ? 'pending'
+          : status === 'failed'
+            ? 'failed'
+            : 'completed',
     errorDetail: typeof entry.errorDetail === 'string' ? entry.errorDetail : undefined,
     audio:
       entry.audio &&
@@ -258,6 +280,31 @@ function normalizeProvider(
 
 function getProviderModels(provider: ProviderKind): AppSettings['providers'] {
   return { ...PROVIDER_MODELS[provider] }
+}
+
+function normalizeProviderModels(
+  value: unknown,
+  legacyActiveModels: Partial<AppSettings['providers']> | undefined,
+  selectedProvider: ProviderKind
+): Record<ProviderKind, AppSettings['providers']> {
+  const raw = value as Partial<Record<ProviderKind, Partial<AppSettings['providers']>>> | undefined
+
+  return {
+    dashscope: {
+      asr: PROVIDER_MODELS.dashscope.asr,
+      llm: normalizeProviderLlmModel(
+        'dashscope',
+        raw?.dashscope?.llm ?? (selectedProvider === 'dashscope' ? legacyActiveModels?.llm : null)
+      )
+    },
+    openai: {
+      asr: PROVIDER_MODELS.openai.asr,
+      llm: normalizeProviderLlmModel(
+        'openai',
+        raw?.openai?.llm ?? (selectedProvider === 'openai' ? legacyActiveModels?.llm : null)
+      )
+    }
+  }
 }
 
 function normalizeMicrophonePreference(value: unknown): MicrophonePreference {
@@ -340,9 +387,11 @@ export function createSettingsStore(
       completed: false
     }
   }
+  let providerModels = normalizeProviderModels(undefined, undefined, defaults.provider)
 
   function loadInitialState(): AppSettings {
     if (!existsSync(settingsPath)) {
+      providerModels = normalizeProviderModels(undefined, undefined, defaults.provider)
       return defaults
     }
 
@@ -361,6 +410,7 @@ export function createSettingsStore(
         ),
         presets: postProcessPresets
       })
+      providerModels = normalizeProviderModels(parsed.providerModels, parsed.providers, provider)
 
       return {
         hotkey:
@@ -375,13 +425,14 @@ export function createSettingsStore(
         themeMode: normalizeThemeMode(parsed.themeMode),
         postProcessPreset: selectedPostProcessPreset.id,
         postProcessPresets,
-        providers: getProviderModels(provider),
+        providers: { ...providerModels[provider] },
         dashscopeApiKey: normalizeString(parsed.dashscopeApiKey),
         openaiApiKey: normalizeString(parsed.openaiApiKey),
         history,
         onboarding: normalizeOnboardingState(parsed.onboarding)
       }
     } catch {
+      providerModels = normalizeProviderModels(undefined, undefined, defaults.provider)
       return defaults
     }
   }
@@ -402,7 +453,11 @@ export function createSettingsStore(
       themeMode: state.themeMode,
       postProcessPreset: state.postProcessPreset,
       postProcessPresets: state.postProcessPresets.map((preset) => ({ ...preset })),
-      providers: getProviderModels(state.provider),
+      providerModels: {
+        dashscope: { ...providerModels.dashscope },
+        openai: { ...providerModels.openai }
+      },
+      providers: { ...providerModels[state.provider] },
       dashscopeApiKey: state.dashscopeApiKey,
       openaiApiKey: state.openaiApiKey,
       history: state.history,
@@ -418,7 +473,7 @@ export function createSettingsStore(
     get(): AppSettings {
       return {
         ...state,
-        providers: getProviderModels(state.provider),
+        providers: { ...providerModels[state.provider] },
         microphone: { ...state.microphone },
         languagePreference: state.languagePreference,
         postProcessPreset: state.postProcessPreset,
@@ -451,7 +506,33 @@ export function createSettingsStore(
       }
 
       state.provider = provider
-      state.providers = getProviderModels(provider)
+      state.providers = { ...providerModels[provider] }
+      persistState()
+    },
+    getProviderModels(provider = state.provider): AppSettings['providers'] {
+      return { ...providerModels[provider] }
+    },
+    getAvailableLlmModels(provider: ProviderKind): string[] {
+      return getAvailableLlmModels(provider)
+    },
+    setProviderLlmModel(provider: ProviderKind, model: string): void {
+      const nextModel = normalizeProviderLlmModel(provider, model)
+      if (providerModels[provider].llm === nextModel) {
+        return
+      }
+
+      providerModels = {
+        ...providerModels,
+        [provider]: {
+          ...providerModels[provider],
+          llm: nextModel
+        }
+      }
+
+      if (state.provider === provider) {
+        state.providers = { ...providerModels[provider] }
+      }
+
       persistState()
     },
     getMicrophone(): MicrophonePreference {
@@ -551,7 +632,8 @@ export function createSettingsStore(
       const nextPreset: PostProcessPresetRecord = {
         ...previousPreset,
         name: normalizeRequiredString(input.name, previousPreset.name),
-        systemPrompt: normalizeRequiredString(input.systemPrompt, previousPreset.systemPrompt)
+        systemPrompt: normalizeRequiredString(input.systemPrompt, previousPreset.systemPrompt),
+        enablePostProcessing: input.enablePostProcessing
       }
 
       state.postProcessPresets[presetIndex] = nextPreset
@@ -583,7 +665,8 @@ export function createSettingsStore(
         id: crypto.randomUUID(),
         name,
         systemPrompt,
-        builtIn: false
+        builtIn: false,
+        enablePostProcessing: input.enablePostProcessing
       }
 
       state.postProcessPresets = [...state.postProcessPresets, nextPreset]

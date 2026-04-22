@@ -26,12 +26,22 @@ export function registerMainIpc(input: {
   setThemeMode: (themeMode: ThemeMode) => void
   setLanguage: (language: LanguagePreference) => void
   setPostProcessPreset: (presetId: PostProcessPresetId) => void
-  savePostProcessPreset: (input: { id: string; name: string; systemPrompt: string }) => unknown
+  savePostProcessPreset: (input: {
+    id: string
+    name: string
+    systemPrompt: string
+    enablePostProcessing: boolean
+  }) => unknown
   resetPostProcessPreset: (presetId: string) => unknown
-  createPostProcessPreset: (input: { name: string; systemPrompt: string }) => unknown
+  createPostProcessPreset: (input: {
+    name: string
+    systemPrompt: string
+    enablePostProcessing: boolean
+  }) => unknown
   setHotkey: (hotkey: TriggerKey) => void
   setMicrophone: (input: { deviceId: string | null; label: string | null }) => void
   setProvider: (provider: ProviderKind) => void
+  setProviderLlmModel: (provider: ProviderKind, model: string) => void
   getProviderSetup: () => { configured: boolean; keyLabel: string | null }
   saveDashscopeApiKey: (apiKey: string) => { configured: boolean; keyLabel: string | null }
   saveOpenAiApiKey: (apiKey: string) => { configured: boolean; keyLabel: string | null }
@@ -63,6 +73,7 @@ export function registerMainIpc(input: {
   ipcMain.removeHandler(IPC_CHANNELS.app.setHotkey)
   ipcMain.removeHandler(IPC_CHANNELS.app.setMicrophone)
   ipcMain.removeHandler(IPC_CHANNELS.app.setProvider)
+  ipcMain.removeHandler(IPC_CHANNELS.app.setProviderLlmModel)
   ipcMain.removeHandler(IPC_CHANNELS.app.getProviderSetup)
   ipcMain.removeHandler(IPC_CHANNELS.app.saveDashscopeApiKey)
   ipcMain.removeHandler(IPC_CHANNELS.app.saveOpenAiApiKey)
@@ -159,12 +170,21 @@ export function registerMainIpc(input: {
   })
   ipcMain.handle(
     IPC_CHANNELS.app.savePostProcessPreset,
-    (_event, value: { id?: unknown; name?: unknown; systemPrompt?: unknown } | undefined) => {
+    (
+      _event,
+      value: {
+        id?: unknown
+        name?: unknown
+        systemPrompt?: unknown
+        enablePostProcessing?: unknown
+      } | undefined
+    ) => {
       if (
         typeof value?.id !== 'string' ||
         value.id.trim() === '' ||
         typeof value?.name !== 'string' ||
-        typeof value?.systemPrompt !== 'string'
+        typeof value?.systemPrompt !== 'string' ||
+        typeof value?.enablePostProcessing !== 'boolean'
       ) {
         throw new Error('Valid post-process preset fields are required.')
       }
@@ -172,7 +192,8 @@ export function registerMainIpc(input: {
       return input.savePostProcessPreset({
         id: value.id,
         name: value.name,
-        systemPrompt: value.systemPrompt
+        systemPrompt: value.systemPrompt,
+        enablePostProcessing: value.enablePostProcessing
       })
     }
   )
@@ -185,14 +206,22 @@ export function registerMainIpc(input: {
   })
   ipcMain.handle(
     IPC_CHANNELS.app.createPostProcessPreset,
-    (_event, value: { name?: unknown; systemPrompt?: unknown } | undefined) => {
-      if (typeof value?.name !== 'string' || typeof value?.systemPrompt !== 'string') {
+    (
+      _event,
+      value: { name?: unknown; systemPrompt?: unknown; enablePostProcessing?: unknown } | undefined
+    ) => {
+      if (
+        typeof value?.name !== 'string' ||
+        typeof value?.systemPrompt !== 'string' ||
+        typeof value?.enablePostProcessing !== 'boolean'
+      ) {
         throw new Error('Valid post-process preset fields are required.')
       }
 
       return input.createPostProcessPreset({
         name: value.name,
-        systemPrompt: value.systemPrompt
+        systemPrompt: value.systemPrompt,
+        enablePostProcessing: value.enablePostProcessing
       })
     }
   )
@@ -222,6 +251,20 @@ export function registerMainIpc(input: {
 
     input.setProvider(provider)
   })
+  ipcMain.handle(
+    IPC_CHANNELS.app.setProviderLlmModel,
+    (_event, value: { provider?: unknown; model?: unknown } | undefined) => {
+      if (
+        (value?.provider !== 'dashscope' && value?.provider !== 'openai') ||
+        typeof value?.model !== 'string' ||
+        value.model.trim() === ''
+      ) {
+        return
+      }
+
+      input.setProviderLlmModel(value.provider, value.model)
+    }
+  )
   ipcMain.handle(IPC_CHANNELS.app.getProviderSetup, () => {
     return input.getProviderSetup()
   })

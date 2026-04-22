@@ -4,6 +4,7 @@ import type { ContextProvider } from '../context/ContextProvider'
 import { logDebug } from '../logging/debugLogger'
 import type { AsrProvider } from '../providers/asr/AsrProvider'
 import type { LlmProvider } from '../providers/llm/LlmProvider'
+import type { PostProcessPresetRecord } from '../providers/llm/postProcessPrompts'
 import type { ChatState, RecordingArtifact } from '../recording/types'
 import type { VoiceSession } from './ephemeralSessionStore'
 
@@ -14,6 +15,7 @@ export function createVoicePipeline(dependencies: {
   asrProvider: AsrProvider
   llmProvider: LlmProvider
   actionExecutor: ActionExecutor
+  getPostProcessPreset: () => PostProcessPresetRecord
   sessionStore: {
     begin(snapshot: Awaited<ReturnType<ContextProvider['captureSnapshot']>>): VoiceSession
     getCurrent(): VoiceSession | null
@@ -60,6 +62,7 @@ export function createVoicePipeline(dependencies: {
   }): Promise<void> => {
     let transcriptText = ''
     let cleanedText = ''
+    let llmTransformStarted = false
 
     dependencies.notifyChatWindow({ phase: 'thinking', detail: 'Transcribing audio…' })
 
@@ -94,24 +97,36 @@ export function createVoicePipeline(dependencies: {
       dependencies.notifyChatWindow({
         phase: 'thinking',
         text: transcriptText,
-        detail: 'Applying intent…'
+        detail: 'Preparing final text…'
       })
 
-      logDebug('voice-pipeline', 'Requesting LLM transform completion', {
-        source: input.source,
-        historyId: input.historyId,
-        hasSelectedText: Boolean(input.selectedText)
-      })
-      const transformed = await dependencies.llmProvider.transform({
-        transcriptText,
-        selectedText: input.selectedText
-      })
-      cleanedText = transformed.text
-      logDebug('voice-pipeline', 'LLM transform completion completed', {
-        source: input.source,
-        historyId: input.historyId,
-        cleanedLength: cleanedText.length
-      })
+      const postProcessPreset = dependencies.getPostProcessPreset()
+      if (postProcessPreset.enablePostProcessing) {
+        llmTransformStarted = true
+        logDebug('voice-pipeline', 'Requesting LLM transform completion', {
+          source: input.source,
+          historyId: input.historyId,
+          presetId: postProcessPreset.id,
+          hasSelectedText: Boolean(input.selectedText)
+        })
+        const transformed = await dependencies.llmProvider.transform({
+          transcriptText,
+          selectedText: input.selectedText
+        })
+        cleanedText = transformed.text
+        logDebug('voice-pipeline', 'LLM transform completion completed', {
+          source: input.source,
+          historyId: input.historyId,
+          cleanedLength: cleanedText.length
+        })
+      } else {
+        cleanedText = transcriptText
+        logDebug('voice-pipeline', 'Skipped LLM transform for preset', {
+          source: input.source,
+          historyId: input.historyId,
+          presetId: postProcessPreset.id
+        })
+      }
 
       if (input.closeRecordingBarBeforeInject) {
         dependencies.hideRecordingBar()
@@ -125,6 +140,7 @@ export function createVoicePipeline(dependencies: {
         status: 'completed',
         transcript: transcriptText,
         cleanedText,
+        llmProcessing: postProcessPreset.enablePostProcessing ? 'completed' : 'skipped',
         errorDetail: undefined
       })
       logDebug('voice-pipeline', 'History entry marked as completed', {
@@ -144,6 +160,7 @@ export function createVoicePipeline(dependencies: {
         status: 'failed',
         transcript: transcriptText,
         cleanedText,
+        llmProcessing: llmTransformStarted ? 'failed' : 'pending',
         errorDetail: detail
       })
       if (input.closeRecordingBarBeforeInject) {
@@ -213,7 +230,8 @@ export function createVoicePipeline(dependencies: {
         createdAt: Date.now(),
         transcript: '',
         cleanedText: '',
-        status: 'pending'
+        status: 'pending',
+        llmProcessing: 'pending'
       })
 
       try {
@@ -267,6 +285,7 @@ export function createVoicePipeline(dependencies: {
 
       dependencies.historyStore.updateHistoryEntry(historyId, {
         status: 'pending',
+        llmProcessing: 'pending',
         errorDetail: undefined
       })
 

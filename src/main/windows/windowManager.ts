@@ -14,6 +14,7 @@ export type WindowManager = {
   showRecordingBar(command: RecordingCommand): void
   stopRecordingBar(): void
   hideRecordingBar(): void
+  closeAllWindows(): void
   setChatState(state: ChatState): void
   setAppState(state: MainAppStatePayload): void
 }
@@ -98,6 +99,28 @@ function showOverlayWindow(window: BrowserWindow): void {
   window.showInactive()
 }
 
+function closeManagedWindow(window?: BrowserWindow): void {
+  if (!window || window.isDestroyed()) {
+    return
+  }
+
+  try {
+    window.close()
+  } catch {
+    // Fall through to destroy as a last resort.
+  }
+
+  if (window.isDestroyed()) {
+    return
+  }
+
+  try {
+    window.destroy()
+  } catch {
+    // Best effort cleanup during application shutdown.
+  }
+}
+
 export function createWindowManager(input: {
   mainAppWindow: BrowserWindow
   recordingBarWindow: BrowserWindow
@@ -119,15 +142,43 @@ export function createWindowManager(input: {
     },
     providerLabels: {
       asr: 'qwen3-asr-flash',
-      llm: 'qwen-plus'
+      llm: 'qwen3.5-flash'
     },
     dashscope: {
       configured: false,
-      keyLabel: null
+      keyLabel: null,
+      asrModel: 'qwen3-asr-flash',
+      llmModel: 'qwen3.5-flash',
+      availableLlmModels: [
+        'qwen3-max',
+        'qwen3.6-plus',
+        'qwen3.5-plus',
+        'qwen-plus',
+        'qwen3.6-flash',
+        'qwen3.5-flash',
+        'qwen-flash'
+      ]
     },
     openai: {
       configured: false,
-      keyLabel: null
+      keyLabel: null,
+      asrModel: 'gpt-4o-mini-transcribe',
+      llmModel: 'gpt-5-mini',
+      availableLlmModels: [
+        'gpt-5.2',
+        'gpt-5.1',
+        'gpt-5',
+        'gpt-5-mini',
+        'gpt-5-nano',
+        'gpt-4.1',
+        'gpt-4.1-mini',
+        'gpt-4.1-nano',
+        'gpt-4o',
+        'gpt-4o-mini',
+        'o3',
+        'o4-mini',
+        'o3-mini'
+      ]
     },
     onboarding: {
       completed: false,
@@ -145,14 +196,16 @@ export function createWindowManager(input: {
         name: 'Formal',
         systemPrompt:
           'Prefer polished punctuation, complete sentences, and a professional tone while preserving the speaker intent, wording, and meaning.',
-        builtIn: true
+        builtIn: true,
+        enablePostProcessing: true
       },
       {
         id: 'casual',
         name: 'Casual',
         systemPrompt:
           'Prefer a conversational, relaxed tone with lighter punctuation and natural shorthand when it fits, while preserving the speaker intent, wording, and meaning.',
-        builtIn: true
+        builtIn: true,
+        enablePostProcessing: true
       }
     ],
     voiceBackendStatus: {
@@ -217,6 +270,11 @@ export function createWindowManager(input: {
       if (!input.recordingBarWindow.isDestroyed()) {
         input.recordingBarWindow.hide()
       }
+    },
+    closeAllWindows(): void {
+      closeManagedWindow(input.chatWindow)
+      closeManagedWindow(input.recordingBarWindow)
+      closeManagedWindow(input.mainAppWindow)
     },
     setChatState(state: ChatState): void {
       chatState = state

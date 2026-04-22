@@ -17,6 +17,8 @@ import {
 } from '@renderer/components/ui/sidebar'
 import { useI18n } from '@renderer/i18n'
 
+import { formatMaskedKeyLabel } from './maskedKeyLabel'
+import { getPresetDisplayName } from './presetDisplayName'
 import type { DashscopeSetupState, MainAppState, SettingsSection } from './types'
 import { TrayIcon } from './TrayIcon'
 
@@ -51,10 +53,12 @@ export function MainSidebar(props: MainSidebarProps): React.JSX.Element {
   const isDictionaryRoute = location.pathname.startsWith('/dictionary')
   const isPresetsRoute = location.pathname.startsWith('/presets')
   const activeProvider = selectedProvider === 'openai' ? openai : dashscope
-  const activeProviderLabel = selectedProvider === 'openai' ? 'OpenAI' : 'DashScope'
+  const activeProviderLabel = t(
+    selectedProvider === 'openai' ? 'provider.openai' : 'provider.dashscope'
+  )
   const hasDownloadedUpdate = autoUpdate.status === 'update-downloaded'
-  const activePresetLabel =
-    postProcessPresets.find((preset) => preset.id === postProcessPreset)?.name ?? 'Formal'
+  const activePreset = postProcessPresets.find((preset) => preset.id === postProcessPreset)
+  const activePresetLabel = getPresetDisplayName(activePreset, t)
 
   const handleRestartToUpdate = async (): Promise<void> => {
     if (!hasDownloadedUpdate || restartPending) {
@@ -183,7 +187,7 @@ export function MainSidebar(props: MainSidebarProps): React.JSX.Element {
               </p>
               <p className="mt-2 text-sm font-medium">{activeProviderLabel}</p>
               <p className="text-xs text-muted-foreground">
-                {activeProvider.keyLabel ?? t('sidebar.noApiKey')}
+                {formatMaskedKeyLabel(activeProvider.keyLabel, t, t('sidebar.noApiKey'))}
               </p>
               <div className="mt-3 flex items-center justify-between rounded-lg border border-sidebar-border/70 bg-background/60 px-3 py-2 text-xs">
                 <span className="text-muted-foreground">{t('sidebar.postProcessPreset')}</span>

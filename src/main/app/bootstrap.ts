@@ -368,6 +368,10 @@ function buildMainAppState(input: {
   postProcessPreset: import('../ipc/channels').PostProcessPresetId
   postProcessPresets: PostProcessPresetRecord[]
   providers: { asr: string; llm: string }
+  dashscopeModels: { asr: string; llm: string }
+  openAiModels: { asr: string; llm: string }
+  dashscopeAvailableLlmModels: string[]
+  openAiAvailableLlmModels: string[]
   providerConfigured: boolean
   providerKeyLabel: string | null
   dashscopeKeyLabel: string | null
@@ -450,14 +454,20 @@ function buildMainAppState(input: {
         input.selectedProvider === 'dashscope'
           ? input.providerConfigured
           : Boolean(input.dashscopeKeyLabel),
-      keyLabel: input.dashscopeKeyLabel
+      keyLabel: input.dashscopeKeyLabel,
+      asrModel: input.dashscopeModels.asr,
+      llmModel: input.dashscopeModels.llm,
+      availableLlmModels: [...input.dashscopeAvailableLlmModels]
     },
     openai: {
       configured:
         input.selectedProvider === 'openai'
           ? input.providerConfigured
           : Boolean(input.openAiKeyLabel),
-      keyLabel: input.openAiKeyLabel
+      keyLabel: input.openAiKeyLabel,
+      asrModel: input.openAiModels.asr,
+      llmModel: input.openAiModels.llm,
+      availableLlmModels: [...input.openAiAvailableLlmModels]
     },
     onboarding: {
       completed: input.onboardingCompleted,
@@ -980,7 +990,11 @@ export async function bootstrapApplication(): Promise<void> {
         themeMode: settings.themeMode,
         postProcessPreset: settings.postProcessPreset,
         postProcessPresets: settings.postProcessPresets,
-        providers: settings.providers,
+        providers: settingsStore.getProviderModels(selectedProvider),
+        dashscopeModels: settingsStore.getProviderModels('dashscope'),
+        openAiModels: settingsStore.getProviderModels('openai'),
+        dashscopeAvailableLlmModels: settingsStore.getAvailableLlmModels('dashscope'),
+        openAiAvailableLlmModels: settingsStore.getAvailableLlmModels('openai'),
         providerConfigured: isProviderConfigured(selectedProvider),
         providerKeyLabel:
           selectedProvider === 'openai'
@@ -1053,10 +1067,12 @@ export async function bootstrapApplication(): Promise<void> {
   const qwenCleanupProvider = createQwenCleanupProvider({
     apiKey: resolveDashscopeApiKey,
     baseUrl: env.dashscopeBaseUrl,
+    model: () => settingsStore.getProviderModels('dashscope').llm,
     postProcessPreset: () => settingsStore.getSelectedPostProcessPreset()
   })
   const openAiCleanupProvider = createOpenAiCleanupProvider({
     apiKey: resolveOpenAiApiKey,
+    model: () => settingsStore.getProviderModels('openai').llm,
     postProcessPreset: () => settingsStore.getSelectedPostProcessPreset()
   })
   const getCurrentAsrProvider = (): ReturnType<typeof createQwenAsrProvider> => {
@@ -1117,12 +1133,15 @@ export async function bootstrapApplication(): Promise<void> {
     actionExecutor: createNutPasteExecutor({
       platform: process.platform,
       clipboard: {
+        clear: async () => {
+          electronClipboard.clear()
+        },
         setContent: async (text) => {
           electronClipboard.writeText(text)
-        },
-        getContent: async () => electronClipboard.readText()
+        }
       }
     }),
+    getPostProcessPreset: () => settingsStore.getSelectedPostProcessPreset(),
     historyStore: {
       appendHistory: (entry) => {
         settingsStore.appendHistory(entry)
@@ -1240,6 +1259,7 @@ export async function bootstrapApplication(): Promise<void> {
         id: entry.id,
         createdAt: entry.createdAt,
         status: entry.status,
+        llmProcessing: entry.llmProcessing,
         transcript: entry.transcript,
         cleanedText: entry.cleanedText,
         errorDetail: entry.errorDetail,
@@ -1304,6 +1324,10 @@ export async function bootstrapApplication(): Promise<void> {
       syncAppState()
       void ensureAccessibilityPermission('focus')
       void ensureMicrophonePermission('focus')
+    },
+    setProviderLlmModel: (provider, model) => {
+      settingsStore.setProviderLlmModel(provider, model)
+      syncAppState()
     },
     getProviderSetup: () => ({
       configured: hasActiveProviderKey(),
@@ -1471,6 +1495,7 @@ export async function bootstrapApplication(): Promise<void> {
       hotkeyService.stop()
     }
     globalShortcut.unregister(SHOW_MAIN_WINDOW_SHORTCUT)
+    windowManager.closeAllWindows()
     tray?.destroy()
     tray = null
     contextProvider.cleanup?.()

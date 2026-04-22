@@ -60,6 +60,7 @@ export type TiaHistoryDebugEntry = {
   id: string
   createdAt: number
   status: 'pending' | 'completed' | 'failed'
+  llmProcessing: 'pending' | 'completed' | 'skipped' | 'failed'
   transcript: string
   cleanedText: string
   errorDetail?: string
@@ -88,10 +89,16 @@ export type MainAppState = {
   dashscope: {
     configured: boolean
     keyLabel: string | null
+    asrModel: string
+    llmModel: string
+    availableLlmModels: string[]
   }
   openai: {
     configured: boolean
     keyLabel: string | null
+    asrModel: string
+    llmModel: string
+    availableLlmModels: string[]
   }
   onboarding: {
     completed: boolean
@@ -151,15 +158,18 @@ export type TiaApi = {
     id: string
     name: string
     systemPrompt: string
+    enablePostProcessing: boolean
   }): Promise<PostProcessPresetPayload>
   resetPostProcessPreset(presetId: string): Promise<PostProcessPresetPayload>
   createPostProcessPreset(input: {
     name: string
     systemPrompt: string
+    enablePostProcessing: boolean
   }): Promise<PostProcessPresetPayload>
   setHotkey(hotkey: TriggerKey): Promise<void>
   setMicrophone(input: { deviceId: string | null; label: string | null }): Promise<void>
   setProvider(provider: ProviderKind): Promise<void>
+  setProviderLlmModel(input: { provider: ProviderKind; model: string }): Promise<void>
   getProviderSetup(): Promise<ProviderSetupPayload>
   saveDashscopeApiKey(apiKey: string): Promise<ProviderSetupPayload>
   saveOpenAiApiKey(apiKey: string): Promise<ProviderSetupPayload>
@@ -197,6 +207,7 @@ const APP_CREATE_POST_PROCESS_PRESET_CHANNEL = IPC_CHANNELS.app.createPostProces
 const APP_SET_HOTKEY_CHANNEL = IPC_CHANNELS.app.setHotkey
 const APP_SET_MICROPHONE_CHANNEL = IPC_CHANNELS.app.setMicrophone
 const APP_SET_PROVIDER_CHANNEL = IPC_CHANNELS.app.setProvider
+const APP_SET_PROVIDER_LLM_MODEL_CHANNEL = IPC_CHANNELS.app.setProviderLlmModel
 const APP_GET_PROVIDER_SETUP_CHANNEL = IPC_CHANNELS.app.getProviderSetup
 const APP_SAVE_DASHSCOPE_API_KEY_CHANNEL = IPC_CHANNELS.app.saveDashscopeApiKey
 const APP_SAVE_OPENAI_API_KEY_CHANNEL = IPC_CHANNELS.app.saveOpenAiApiKey
@@ -293,6 +304,9 @@ const api: TiaApi = {
   },
   setProvider(provider) {
     return ipcRenderer.invoke(APP_SET_PROVIDER_CHANNEL, provider)
+  },
+  setProviderLlmModel(input) {
+    return ipcRenderer.invoke(APP_SET_PROVIDER_LLM_MODEL_CHANNEL, input)
   },
   getProviderSetup() {
     return ipcRenderer.invoke(APP_GET_PROVIDER_SETUP_CHANNEL)

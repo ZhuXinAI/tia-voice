@@ -8,6 +8,7 @@ import {
 
 type FetchLike = typeof fetch
 type ApiKeyResolver = string | (() => string | Promise<string>)
+type ModelResolver = string | (() => string | Promise<string>)
 type PostProcessPresetResolver =
   | PostProcessPresetRecord
   | (() => PostProcessPresetRecord | Promise<PostProcessPresetRecord>)
@@ -44,6 +45,11 @@ async function resolveApiKey(input: ApiKeyResolver): Promise<string> {
   return value
 }
 
+async function resolveModel(input: ModelResolver | undefined): Promise<string> {
+  const value = typeof input === 'function' ? await input() : input
+  return typeof value === 'string' && value.trim() !== '' ? value : 'qwen3.5-flash'
+}
+
 async function resolvePostProcessPreset(input: PostProcessPresetResolver | undefined) {
   const value = typeof input === 'function' ? await input() : input
   return normalizePostProcessPreset(value, DEFAULT_POST_PROCESS_PRESETS[0])
@@ -52,6 +58,7 @@ async function resolvePostProcessPreset(input: PostProcessPresetResolver | undef
 export function createQwenCleanupProvider(input: {
   apiKey: ApiKeyResolver
   baseUrl: string
+  model?: ModelResolver
   postProcessPreset?: PostProcessPresetResolver
   fetcher?: FetchLike
 }): LlmProvider {
@@ -60,6 +67,7 @@ export function createQwenCleanupProvider(input: {
   return {
     async transform(request: LlmTransformInput) {
       const apiKey = await resolveApiKey(input.apiKey)
+      const model = await resolveModel(input.model)
       const postProcessPreset = await resolvePostProcessPreset(input.postProcessPreset)
       const prompt = buildPostProcessPromptParts({
         request,
@@ -72,7 +80,7 @@ export function createQwenCleanupProvider(input: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          model: 'qwen-plus',
+          model,
           messages: [
             {
               role: 'system',

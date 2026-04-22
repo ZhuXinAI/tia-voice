@@ -11,9 +11,11 @@ import {
 } from '@renderer/components/ui/dialog'
 import { Input } from '@renderer/components/ui/input'
 import { Label } from '@renderer/components/ui/label'
+import { Switch } from '@renderer/components/ui/switch'
 import { Textarea } from '@renderer/components/ui/textarea'
 import { useI18n } from '@renderer/i18n'
 import type { PostProcessPresetPayload } from '../../../../preload/index'
+import { getPresetDisplayName } from './presetDisplayName'
 
 type PostProcessPresetEditorProps = {
   open: boolean
@@ -23,9 +25,11 @@ type PostProcessPresetEditorProps = {
   error: string | null
   draftName: string
   draftSystemPrompt: string
+  draftEnablePostProcessing: boolean
   onOpenChange: (open: boolean) => void
   onDraftNameChange: (value: string) => void
   onDraftSystemPromptChange: (value: string) => void
+  onDraftEnablePostProcessingChange: (value: boolean) => void
   onSave: () => void
   onResetToDefault: () => void
 }
@@ -39,9 +43,11 @@ export function PostProcessPresetEditor(props: PostProcessPresetEditorProps): Re
     error,
     draftName,
     draftSystemPrompt,
+    draftEnablePostProcessing,
     onOpenChange,
     onDraftNameChange,
     onDraftSystemPromptChange,
+    onDraftEnablePostProcessingChange,
     onSave,
     onResetToDefault
   } = props
@@ -49,7 +55,7 @@ export function PostProcessPresetEditor(props: PostProcessPresetEditorProps): Re
 
   const title = creatingNew
     ? t('presetEditor.newTitle')
-    : (preset?.name ?? t('presetEditor.fallbackTitle'))
+    : (getPresetDisplayName(preset, t) ?? t('presetEditor.fallbackTitle'))
   const description = creatingNew
     ? t('presetEditor.newDescription')
     : t('presetEditor.editDescription')
@@ -85,13 +91,34 @@ export function PostProcessPresetEditor(props: PostProcessPresetEditorProps): Re
 
           <div className="space-y-2">
             <Label htmlFor="preset-instructions">{t('presetEditor.prompt')}</Label>
+            <div className="flex items-start justify-between gap-4 rounded-lg border border-border/70 bg-background/60 p-4">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground">
+                  {t('presetEditor.postProcessToggle')}
+                </p>
+                <p className="text-sm leading-6 text-muted-foreground">
+                  {t('presetEditor.postProcessToggleBody')}
+                </p>
+              </div>
+              <Switch
+                checked={draftEnablePostProcessing}
+                onCheckedChange={onDraftEnablePostProcessingChange}
+                aria-label={t('presetEditor.postProcessToggle')}
+              />
+            </div>
             <Textarea
               id="preset-instructions"
               value={draftSystemPrompt}
               onChange={(event) => onDraftSystemPromptChange(event.target.value)}
               placeholder={t('presetEditor.promptPlaceholder')}
               rows={9}
+              disabled={!draftEnablePostProcessing}
             />
+            {!draftEnablePostProcessing ? (
+              <p className="text-sm text-muted-foreground">
+                {t('presetEditor.promptOptionalDisabled')}
+              </p>
+            ) : null}
           </div>
 
           {error ? <p className="text-sm text-destructive">{error}</p> : null}

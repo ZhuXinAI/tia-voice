@@ -36,6 +36,7 @@ export const IPC_CHANNELS = {
     setHotkey: 'app:set-hotkey',
     setMicrophone: 'app:set-microphone',
     setProvider: 'app:set-provider',
+    setProviderLlmModel: 'app:set-provider-llm-model',
     getProviderSetup: 'app:get-provider-setup',
     saveDashscopeApiKey: 'app:save-dashscope-api-key',
     saveOpenAiApiKey: 'app:save-openai-api-key',
@@ -82,6 +83,7 @@ export type PostProcessPresetPayload = {
   name: string
   systemPrompt: string
   builtIn: boolean
+  enablePostProcessing: boolean
 }
 
 export type MainAppStatePayload = {
@@ -101,10 +103,16 @@ export type MainAppStatePayload = {
   dashscope: {
     configured: boolean
     keyLabel: string | null
+    asrModel: string
+    llmModel: string
+    availableLlmModels: string[]
   }
   openai: {
     configured: boolean
     keyLabel: string | null
+    asrModel: string
+    llmModel: string
+    availableLlmModels: string[]
   }
   onboarding: {
     completed: boolean

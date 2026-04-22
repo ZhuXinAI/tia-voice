@@ -5,7 +5,7 @@ import { loadRendererWindow } from './windowManager'
 export async function createRecordingBarWindow(preloadPath: string): Promise<BrowserWindow> {
   const bounds = screen.getPrimaryDisplay().workArea
   const width = 400
-  const height = 84
+  const height = 60
   const x = Math.round(bounds.x + bounds.width / 2 - width / 2)
   const y = Math.round(bounds.y + bounds.height - height - 28)
 

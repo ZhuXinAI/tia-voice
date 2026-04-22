@@ -163,4 +163,57 @@ describe('createWindowManager', () => {
     didFinishLoadHandler()
     expect(send).toHaveBeenCalledWith(IPC_CHANNELS.recording.command, command)
   })
+
+  it('closes managed windows during shutdown', () => {
+    const mainAppWindow = {
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      destroy: vi.fn(),
+      webContents: {
+        isDestroyed: vi.fn(() => false),
+        isLoadingMainFrame: vi.fn(() => false),
+        once: vi.fn(),
+        send: vi.fn()
+      }
+    } as unknown as import('electron').BrowserWindow
+
+    const recordingBarWindow = {
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      destroy: vi.fn(),
+      webContents: {
+        isDestroyed: vi.fn(() => false),
+        isLoadingMainFrame: vi.fn(() => false),
+        once: vi.fn(),
+        send: vi.fn()
+      }
+    } as unknown as import('electron').BrowserWindow
+
+    const chatWindow = {
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      destroy: vi.fn(),
+      webContents: {
+        isDestroyed: vi.fn(() => false),
+        isLoadingMainFrame: vi.fn(() => false),
+        once: vi.fn(),
+        send: vi.fn()
+      }
+    } as unknown as import('electron').BrowserWindow
+
+    const manager = createWindowManager({
+      mainAppWindow,
+      recordingBarWindow,
+      chatWindow
+    })
+
+    manager.closeAllWindows()
+
+    expect(chatWindow.close).toHaveBeenCalledOnce()
+    expect(chatWindow.destroy).toHaveBeenCalledOnce()
+    expect(recordingBarWindow.close).toHaveBeenCalledOnce()
+    expect(recordingBarWindow.destroy).toHaveBeenCalledOnce()
+    expect(mainAppWindow.close).toHaveBeenCalledOnce()
+    expect(mainAppWindow.destroy).toHaveBeenCalledOnce()
+  })
 })

@@ -5,6 +5,7 @@ export type PostProcessPresetRecord = {
   name: string
   systemPrompt: string
   builtIn: boolean
+  enablePostProcessing: boolean
 }
 
 export const DEFAULT_POST_PROCESS_PRESET_ID = 'formal'
@@ -24,6 +25,7 @@ export const DEFAULT_POST_PROCESS_PRESETS: PostProcessPresetRecord[] = [
     id: 'formal',
     name: 'Formal',
     builtIn: true,
+    enablePostProcessing: true,
     systemPrompt:
       'Prefer polished punctuation, complete sentences, and a professional tone while preserving the speaker intent, wording, and meaning.'
   },
@@ -31,6 +33,7 @@ export const DEFAULT_POST_PROCESS_PRESETS: PostProcessPresetRecord[] = [
     id: 'casual',
     name: 'Casual',
     builtIn: true,
+    enablePostProcessing: true,
     systemPrompt:
       'Prefer a conversational, relaxed tone with lighter punctuation and natural shorthand when it fits, while preserving the speaker intent, wording, and meaning.'
   }
@@ -70,7 +73,11 @@ export function normalizePostProcessPreset(
       (value as PostProcessPresetRecord | undefined)?.systemPrompt,
       fallback.systemPrompt
     ),
-    builtIn: (value as PostProcessPresetRecord | undefined)?.builtIn === true
+    builtIn: (value as PostProcessPresetRecord | undefined)?.builtIn === true,
+    enablePostProcessing:
+      typeof (value as PostProcessPresetRecord | undefined)?.enablePostProcessing === 'boolean'
+        ? (value as PostProcessPresetRecord).enablePostProcessing
+        : fallback.enablePostProcessing
   }
 }
 
@@ -94,7 +101,8 @@ export function normalizePostProcessPresetCollection(
           id: `preset-${index + 1}`,
           name: `Preset ${index + 1}`,
           systemPrompt: 'Preserve meaning while following these instructions.',
-          builtIn: false
+          builtIn: false,
+          enablePostProcessing: true
         } satisfies PostProcessPresetRecord)
 
       return normalizePostProcessPreset(item, fallback)

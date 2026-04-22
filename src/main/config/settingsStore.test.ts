@@ -24,7 +24,8 @@ describe('createSettingsStore', () => {
       createdAt: Date.now(),
       transcript: 'hello',
       cleanedText: 'Hello.',
-      status: 'completed'
+      status: 'completed',
+      llmProcessing: 'completed'
     })
 
     expect(store.get().history).toHaveLength(1)
@@ -52,6 +53,7 @@ describe('createSettingsStore', () => {
     const firstStore = createSettingsStore('MetaRight', root)
 
     firstStore.setProvider('openai')
+    firstStore.setProviderLlmModel('openai', 'gpt-4.1-mini')
     firstStore.setPostProcessPreset('casual')
     firstStore.setLanguagePreference('zh-TW')
     firstStore.setOpenAiApiKey('openai-test-key')
@@ -66,7 +68,15 @@ describe('createSettingsStore', () => {
     expect(secondStore.hasOpenAiApiKey()).toBe(true)
     expect(secondStore.get().providers).toEqual({
       asr: 'gpt-4o-mini-transcribe',
-      llm: 'gpt-5-mini'
+      llm: 'gpt-4.1-mini'
+    })
+    expect(secondStore.getProviderModels('dashscope')).toEqual({
+      asr: 'qwen3-asr-flash',
+      llm: 'qwen3.5-flash'
+    })
+    expect(secondStore.getProviderModels('openai')).toEqual({
+      asr: 'gpt-4o-mini-transcribe',
+      llm: 'gpt-4.1-mini'
     })
     expect(secondStore.getPostProcessPreset()).toBe('casual')
     expect(secondStore.get().languagePreference).toBe('zh-TW')
@@ -74,6 +84,25 @@ describe('createSettingsStore', () => {
     expect(secondStore.getMicrophone()).toEqual({
       deviceId: 'usb-mic-1',
       label: 'USB Microphone'
+    })
+
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('normalizes unsupported llm model choices back to the provider default', () => {
+    const root = mkdtempSync(join(tmpdir(), 'tia-voice-settings-llm-normalize-'))
+    const store = createSettingsStore('MetaRight', root)
+
+    store.setProviderLlmModel('dashscope', 'not-a-real-model')
+    expect(store.getProviderModels('dashscope')).toEqual({
+      asr: 'qwen3-asr-flash',
+      llm: 'qwen3.5-flash'
+    })
+
+    store.setProviderLlmModel('openai', 'gpt-5-nano')
+    expect(store.getProviderModels('openai')).toEqual({
+      asr: 'gpt-4o-mini-transcribe',
+      llm: 'gpt-5-nano'
     })
 
     rmSync(root, { recursive: true, force: true })
@@ -89,20 +118,24 @@ describe('createSettingsStore', () => {
     firstStore.savePostProcessPreset({
       id: 'formal',
       name: 'Formal',
-      systemPrompt: 'Keep the wording polished and concise.'
+      systemPrompt: 'Keep the wording polished and concise.',
+      enablePostProcessing: false
     })
     expect(firstStore.getSelectedPostProcessPreset().systemPrompt).toBe(
       'Keep the wording polished and concise.'
     )
+    expect(firstStore.getSelectedPostProcessPreset().enablePostProcessing).toBe(false)
 
     firstStore.resetPostProcessPreset('formal')
     expect(firstStore.getSelectedPostProcessPreset().systemPrompt).toBe(
       'Prefer polished punctuation, complete sentences, and a professional tone while preserving the speaker intent, wording, and meaning.'
     )
+    expect(firstStore.getSelectedPostProcessPreset().enablePostProcessing).toBe(true)
 
     const customPreset = firstStore.createPostProcessPreset({
       name: 'Support',
-      systemPrompt: 'Sound warm, clear, and customer-friendly.'
+      systemPrompt: 'Sound warm, clear, and customer-friendly.',
+      enablePostProcessing: false
     })
 
     expect(firstStore.getPostProcessPreset()).toBe(customPreset.id)
@@ -117,6 +150,10 @@ describe('createSettingsStore', () => {
     ).toBe(
       'Prefer polished punctuation, complete sentences, and a professional tone while preserving the speaker intent, wording, and meaning.'
     )
+    expect(
+      secondStore.getPostProcessPresets().find((preset) => preset.id === customPreset.id)
+        ?.enablePostProcessing
+    ).toBe(false)
 
     rmSync(root, { recursive: true, force: true })
   })
@@ -155,7 +192,7 @@ describe('createSettingsStore', () => {
         themeMode: 'system',
         providers: {
           asr: 'qwen3-asr-flash',
-          llm: 'qwen-plus'
+          llm: 'qwen3.5-flash'
         },
         dashscopeApiKey: 'dashscope-test-key',
         history: [],

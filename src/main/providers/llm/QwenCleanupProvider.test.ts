@@ -18,6 +18,7 @@ describe('createQwenCleanupProvider', () => {
         id: 'casual',
         name: 'Casual',
         builtIn: true,
+        enablePostProcessing: true,
         systemPrompt:
           'Prefer a conversational, relaxed tone with lighter punctuation and natural shorthand when it fits, while preserving the speaker intent, wording, and meaning.'
       },
@@ -36,7 +37,7 @@ describe('createQwenCleanupProvider', () => {
     const systemMessage = payload.messages[0].content as string
     const userMessage = payload.messages[1].content as string
 
-    expect(payload.model).toBe('qwen-plus')
+    expect(payload.model).toBe('qwen3.5-flash')
     expect(systemMessage).toContain('Preset prompt:')
     expect(systemMessage).toContain('Prefer a conversational, relaxed tone')
     expect(userMessage).toContain('Remaining context:')
@@ -72,5 +73,30 @@ describe('createQwenCleanupProvider', () => {
         })
       })
     )
+  })
+
+  it('uses the configured DashScope llm model when provided', async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: 'cleaned sentence' } }]
+      })
+    })
+
+    const provider = createQwenCleanupProvider({
+      apiKey: 'test-key',
+      model: () => 'qwen3-max',
+      baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      fetcher: fetcher as unknown as typeof fetch
+    })
+
+    await provider.transform({
+      transcriptText: 'raw text',
+      selectedText: null
+    })
+
+    const [, request] = fetcher.mock.calls[0] ?? []
+    const payload = JSON.parse((request as { body: string }).body)
+    expect(payload.model).toBe('qwen3-max')
   })
 })

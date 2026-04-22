@@ -41,6 +41,9 @@ export function HistoryDebugDialog(props: {
   const { open, onOpenChange, historyTitle, detail, loading } = props
   const { t } = useI18n()
   const statusLabel = detail ? t(`history.status.${detail.status}`) : null
+  const llmProcessingLabel = detail
+    ? t(`historyDebug.llmProcessingStatus.${detail.llmProcessing}`)
+    : null
 
   const audioMeta = useMemo(() => {
     if (!detail?.audio) {
@@ -106,10 +109,12 @@ export function HistoryDebugDialog(props: {
 
               <article className="rounded-lg border border-border/70 bg-muted/20 p-4">
                 <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
-                  {t('historyDebug.processed')}
+                  {t('historyDebug.llmProcessing')}
                 </p>
                 <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6">
-                  {detail.cleanedText || t('historyDebug.noProcessed')}
+                  {detail.llmProcessing === 'completed'
+                    ? detail.cleanedText || t('historyDebug.noProcessed')
+                    : llmProcessingLabel}
                 </p>
               </article>
             </section>

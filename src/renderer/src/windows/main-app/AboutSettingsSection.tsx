@@ -23,27 +23,34 @@ function formatVersion(version: string): string {
   return version.startsWith('v') ? version : `v${version}`
 }
 
-function buildStatusLabel(autoUpdate: MainAppState['autoUpdate']): string {
+function buildStatusLabel(
+  autoUpdate: MainAppState['autoUpdate'],
+  t: ReturnType<typeof useI18n>['t']
+): string {
   switch (autoUpdate.status) {
     case 'checking':
-      return 'Checking for updates...'
+      return t('about.status.checking')
     case 'update-available':
-      return autoUpdate.availableVersion
-        ? `${formatVersion(autoUpdate.availableVersion)} is downloading now.`
-        : 'A new update is downloading now.'
+      return t('about.status.downloading', {
+        version: autoUpdate.availableVersion
+          ? formatVersion(autoUpdate.availableVersion)
+          : undefined
+      })
     case 'update-downloaded':
-      return autoUpdate.availableVersion
-        ? `${formatVersion(autoUpdate.availableVersion)} is ready to install.`
-        : 'An update is ready to install.'
+      return t('about.status.ready', {
+        version: autoUpdate.availableVersion
+          ? formatVersion(autoUpdate.availableVersion)
+          : undefined
+      })
     case 'up-to-date':
-      return 'TIA Voice is up to date.'
+      return t('about.status.current')
     case 'unsupported':
-      return 'Automatic updates are unavailable in development builds.'
+      return t('about.status.unsupported')
     case 'error':
-      return autoUpdate.message ?? 'Unable to check for updates right now.'
+      return autoUpdate.message ?? t('about.status.error')
     case 'idle':
     default:
-      return 'TIA Voice checks GitHub releases automatically after launch.'
+      return t('about.status.idle')
   }
 }
 
@@ -131,7 +138,7 @@ export function AboutSettingsSection(props: AboutSettingsSectionProps): React.JS
               <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">
                 {t('about.updateStatus')}
               </p>
-              <p className="mt-2 text-base font-medium">{buildStatusLabel(autoUpdate)}</p>
+              <p className="mt-2 text-base font-medium">{buildStatusLabel(autoUpdate, t)}</p>
             </div>
             <div className="rounded-xl border border-border/70 bg-background/60 p-4">
               <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">
@@ -149,7 +156,7 @@ export function AboutSettingsSection(props: AboutSettingsSectionProps): React.JS
                 : 'border-border/70 bg-background/60 text-muted-foreground'
             )}
           >
-            {autoUpdate.message ?? buildStatusLabel(autoUpdate)}
+            {autoUpdate.message ?? buildStatusLabel(autoUpdate, t)}
             {autoUpdate.status === 'update-available' &&
             autoUpdate.downloadProgressPercent !== null ? (
               <span className="ml-2 font-medium text-foreground">

@@ -15,15 +15,43 @@ export const defaultMainAppState: MainAppState = {
   },
   providerLabels: {
     asr: 'qwen3-asr-flash',
-    llm: 'qwen-plus'
+    llm: 'qwen3.5-flash'
   },
   dashscope: {
     configured: false,
-    keyLabel: null
+    keyLabel: null,
+    asrModel: 'qwen3-asr-flash',
+    llmModel: 'qwen3.5-flash',
+    availableLlmModels: [
+      'qwen3-max',
+      'qwen3.6-plus',
+      'qwen3.5-plus',
+      'qwen-plus',
+      'qwen3.6-flash',
+      'qwen3.5-flash',
+      'qwen-flash'
+    ]
   },
   openai: {
     configured: false,
-    keyLabel: null
+    keyLabel: null,
+    asrModel: 'gpt-4o-mini-transcribe',
+    llmModel: 'gpt-5-mini',
+    availableLlmModels: [
+      'gpt-5.2',
+      'gpt-5.1',
+      'gpt-5',
+      'gpt-5-mini',
+      'gpt-5-nano',
+      'gpt-4.1',
+      'gpt-4.1-mini',
+      'gpt-4.1-nano',
+      'gpt-4o',
+      'gpt-4o-mini',
+      'o3',
+      'o4-mini',
+      'o3-mini'
+    ]
   },
   onboarding: {
     completed: false,
@@ -41,14 +69,16 @@ export const defaultMainAppState: MainAppState = {
       name: 'Formal',
       systemPrompt:
         'Prefer polished punctuation, complete sentences, and a professional tone while preserving the speaker intent, wording, and meaning.',
-      builtIn: true
+      builtIn: true,
+      enablePostProcessing: true
     },
     {
       id: 'casual',
       name: 'Casual',
       systemPrompt:
         'Prefer a conversational, relaxed tone with lighter punctuation and natural shorthand when it fits, while preserving the speaker intent, wording, and meaning.',
-      builtIn: true
+      builtIn: true,
+      enablePostProcessing: true
     }
   ],
   voiceBackendStatus: {

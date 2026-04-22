@@ -11,6 +11,7 @@ import {
 import { useI18n } from '@renderer/i18n'
 import { cn } from '@renderer/lib/utils'
 import type { PostProcessPresetPayload } from '../../../../preload/index'
+import { getPresetDisplayName } from './presetDisplayName'
 
 type PostProcessPresetListProps = {
   presets: PostProcessPresetPayload[]
@@ -50,6 +51,7 @@ export function PostProcessPresetList(props: PostProcessPresetListProps): React.
         <TooltipProvider delayDuration={100}>
           {presets.map((preset) => {
             const isSelected = preset.id === selectedPresetId
+            const presetDisplayName = getPresetDisplayName(preset, t)
 
             return (
               <div
@@ -79,16 +81,23 @@ export function PostProcessPresetList(props: PostProcessPresetListProps): React.
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <p className="truncate text-sm font-semibold text-foreground">
-                        {preset.name}
+                        {presetDisplayName}
                       </p>
                       {preset.builtIn ? (
                         <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-secondary-foreground">
                           {t('presets.builtIn')}
                         </span>
                       ) : null}
+                      {!preset.enablePostProcessing ? (
+                        <span className="rounded-full border border-border/70 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                          {t('presets.llmOff')}
+                        </span>
+                      ) : null}
                     </div>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      {summarizePrompt(preset.systemPrompt)}
+                      {preset.enablePostProcessing
+                        ? summarizePrompt(preset.systemPrompt)
+                        : t('presets.rawTranscriptDescription')}
                     </p>
                   </div>
                 </button>
@@ -112,7 +121,7 @@ export function PostProcessPresetList(props: PostProcessPresetListProps): React.
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 rounded-full text-muted-foreground"
-                        aria-label={t('presets.editPresetAria', { name: preset.name })}
+                        aria-label={t('presets.editPresetAria', { name: presetDisplayName })}
                         onClick={() => onEditPreset(preset.id)}
                       >
                         <Pencil className="h-3.5 w-3.5" />

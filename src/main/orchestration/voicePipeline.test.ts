@@ -29,6 +29,13 @@ describe('createVoicePipeline', () => {
       asrProvider,
       llmProvider,
       actionExecutor,
+      getPostProcessPreset: () => ({
+        id: 'formal',
+        name: 'Formal',
+        systemPrompt: 'Keep it polished.',
+        builtIn: true,
+        enablePostProcessing: true
+      }),
       sessionStore: {
         begin: vi.fn(),
         getCurrent: vi.fn().mockReturnValue({
@@ -84,6 +91,13 @@ describe('createVoicePipeline', () => {
       asrProvider,
       llmProvider,
       actionExecutor,
+      getPostProcessPreset: () => ({
+        id: 'formal',
+        name: 'Formal',
+        systemPrompt: 'Keep it polished.',
+        builtIn: true,
+        enablePostProcessing: true
+      }),
       sessionStore: {
         begin: vi.fn(),
         getCurrent: vi.fn().mockReturnValue(null),
@@ -132,6 +146,13 @@ describe('createVoicePipeline', () => {
       asrProvider: { transcribe: vi.fn().mockResolvedValue({ text: 'hello world' }) },
       llmProvider: { transform: vi.fn().mockResolvedValue({ text: 'Hello world.' }) },
       actionExecutor,
+      getPostProcessPreset: () => ({
+        id: 'formal',
+        name: 'Formal',
+        systemPrompt: 'Keep it polished.',
+        builtIn: true,
+        enablePostProcessing: true
+      }),
       sessionStore: {
         begin: vi.fn(),
         getCurrent: vi.fn().mockReturnValue(null),
@@ -162,6 +183,13 @@ describe('createVoicePipeline', () => {
       contextProvider: { captureSnapshot },
       asrProvider: { transcribe: vi.fn().mockResolvedValue({ text: 'hello world' }) },
       llmProvider: { transform: vi.fn().mockResolvedValue({ text: 'Hello world.' }) },
+      getPostProcessPreset: () => ({
+        id: 'formal',
+        name: 'Formal',
+        systemPrompt: 'Keep it polished.',
+        builtIn: true,
+        enablePostProcessing: true
+      }),
       actionExecutor: { execute: vi.fn().mockResolvedValue(undefined) },
       sessionStore,
       historyStore: {
@@ -180,5 +208,67 @@ describe('createVoicePipeline', () => {
 
     expect(captureSnapshot).toHaveBeenCalledOnce()
     expect(sessionStore.begin).toHaveBeenCalledOnce()
+  })
+
+  it('skips LLM post-processing when the selected preset disables it', async () => {
+    const actionExecutor = { execute: vi.fn().mockResolvedValue(undefined) }
+    const asrProvider = {
+      transcribe: vi.fn().mockResolvedValue({ text: 'raw dictated text' })
+    }
+    const llmProvider = {
+      transform: vi.fn()
+    }
+    const historyStore = {
+      appendHistory: vi.fn(),
+      updateHistoryEntry: vi.fn(),
+      getHistoryEntry: vi.fn(),
+      saveAudioClip: vi.fn().mockResolvedValue(null),
+      readAudioClip: vi.fn()
+    }
+    const pipeline = createVoicePipeline({
+      contextProvider: {
+        captureSnapshot: vi
+          .fn()
+          .mockResolvedValue({ isInputFocused: null, selectedText: null, provider: 'noop', capturedAt: 1 })
+      },
+      asrProvider,
+      llmProvider,
+      actionExecutor,
+      getPostProcessPreset: () => ({
+        id: 'verbatim',
+        name: 'Verbatim',
+        systemPrompt: '',
+        builtIn: false,
+        enablePostProcessing: false
+      }),
+      sessionStore: {
+        begin: vi.fn(),
+        getCurrent: vi.fn().mockReturnValue(null),
+        clear: vi.fn()
+      },
+      historyStore,
+      notifyChatWindow: vi.fn(),
+      hideRecordingBar: vi.fn()
+    })
+
+    await pipeline.finishRecording({
+      mimeType: 'audio/webm',
+      buffer: new Uint8Array([1]),
+      durationMs: 1500
+    })
+
+    expect(llmProvider.transform).not.toHaveBeenCalled()
+    expect(actionExecutor.execute).toHaveBeenCalledWith({
+      kind: 'paste-text',
+      text: 'raw dictated text'
+    })
+    expect(historyStore.updateHistoryEntry).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        cleanedText: 'raw dictated text',
+        llmProcessing: 'skipped',
+        status: 'completed'
+      })
+    )
   })
 })

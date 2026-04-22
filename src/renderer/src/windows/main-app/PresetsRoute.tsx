@@ -10,9 +10,18 @@ type PresetsRouteProps = {
   presets: PostProcessPresetPayload[]
   selectedPreset: string
   onSelectPreset: (presetId: string) => void
-  onSavePreset: (input: { id: string; name: string; systemPrompt: string }) => void
+  onSavePreset: (input: {
+    id: string
+    name: string
+    systemPrompt: string
+    enablePostProcessing: boolean
+  }) => void
   onResetPreset: (presetId: string) => void
-  onCreatePreset: (input: { name: string; systemPrompt: string }) => void
+  onCreatePreset: (input: {
+    name: string
+    systemPrompt: string
+    enablePostProcessing: boolean
+  }) => void
 }
 
 export function PresetsRoute(props: PresetsRouteProps): React.JSX.Element {
@@ -24,6 +33,7 @@ export function PresetsRoute(props: PresetsRouteProps): React.JSX.Element {
   const [creatingNew, setCreatingNew] = useState(false)
   const [draftName, setDraftName] = useState('')
   const [draftSystemPrompt, setDraftSystemPrompt] = useState('')
+  const [draftEnablePostProcessing, setDraftEnablePostProcessing] = useState(true)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const dialogPreset = useMemo(
@@ -35,12 +45,14 @@ export function PresetsRoute(props: PresetsRouteProps): React.JSX.Element {
     if (creatingNew) {
       setDraftName('')
       setDraftSystemPrompt('')
+      setDraftEnablePostProcessing(true)
       setError(null)
       return
     }
 
     setDraftName(dialogPreset?.name ?? '')
     setDraftSystemPrompt(dialogPreset?.systemPrompt ?? '')
+    setDraftEnablePostProcessing(dialogPreset?.enablePostProcessing ?? true)
     setError(null)
   }, [creatingNew, dialogPreset])
 
@@ -73,8 +85,8 @@ export function PresetsRoute(props: PresetsRouteProps): React.JSX.Element {
   }
 
   const handleSave = async (): Promise<void> => {
-    if (!draftName.trim() || !draftSystemPrompt.trim()) {
-      setError('Add both a preset name and instructions.')
+    if (!draftName.trim()) {
+      setError(t('presets.validationNameRequired'))
       return
     }
 
@@ -85,25 +97,27 @@ export function PresetsRoute(props: PresetsRouteProps): React.JSX.Element {
       if (creatingNew) {
         await onCreatePreset({
           name: draftName.trim(),
-          systemPrompt: draftSystemPrompt.trim()
+          systemPrompt: draftSystemPrompt.trim(),
+          enablePostProcessing: draftEnablePostProcessing
         })
         handleDialogOpenChange(false)
         return
       }
 
       if (!dialogPreset) {
-        setError('Select a preset before saving.')
+        setError(t('presets.validationSelectPreset'))
         return
       }
 
       await onSavePreset({
         id: dialogPreset.id,
         name: draftName.trim(),
-        systemPrompt: draftSystemPrompt.trim()
+        systemPrompt: draftSystemPrompt.trim(),
+        enablePostProcessing: draftEnablePostProcessing
       })
       handleDialogOpenChange(false)
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Unable to save preset.')
+      setError(saveError instanceof Error ? saveError.message : t('presets.errorSave'))
     } finally {
       setPending(false)
     }
@@ -121,7 +135,7 @@ export function PresetsRoute(props: PresetsRouteProps): React.JSX.Element {
       await onResetPreset(dialogPreset.id)
       handleDialogOpenChange(false)
     } catch (resetError) {
-      setError(resetError instanceof Error ? resetError.message : 'Unable to reset preset.')
+      setError(resetError instanceof Error ? resetError.message : t('presets.errorReset'))
     } finally {
       setPending(false)
     }
@@ -176,6 +190,8 @@ export function PresetsRoute(props: PresetsRouteProps): React.JSX.Element {
         onOpenChange={handleDialogOpenChange}
         onDraftNameChange={setDraftName}
         onDraftSystemPromptChange={setDraftSystemPrompt}
+        draftEnablePostProcessing={draftEnablePostProcessing}
+        onDraftEnablePostProcessingChange={setDraftEnablePostProcessing}
         onSave={() => void handleSave()}
         onResetToDefault={() => void handleReset()}
       />

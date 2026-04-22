@@ -4,7 +4,7 @@ type NutKey = number
 
 type NutClipboard = {
   setContent(text: string): Promise<void>
-  getContent?(): Promise<string>
+  clear?(): Promise<void>
 }
 
 type NutKeyboard = {
@@ -24,8 +24,6 @@ export function createNutPasteExecutor(input: {
       const keyboard = input.keyboard ?? nut!.keyboard
       const modifier = input.platform === 'darwin' ? nut?.Key.LeftSuper ?? 105 : nut?.Key.LeftControl ?? 104
       const vKey = nut?.Key.V ?? 91
-      const previousClipboardContent =
-        typeof clipboard.getContent === 'function' ? await clipboard.getContent() : null
 
       await clipboard.setContent(action.text)
 
@@ -33,8 +31,10 @@ export function createNutPasteExecutor(input: {
         await keyboard.pressKey(modifier, vKey)
         await keyboard.releaseKey(modifier, vKey)
       } finally {
-        if (previousClipboardContent !== null) {
-          await clipboard.setContent(previousClipboardContent)
+        if ('clear' in clipboard && typeof clipboard.clear === 'function') {
+          await clipboard.clear()
+        } else {
+          await clipboard.setContent('')
         }
       }
     }

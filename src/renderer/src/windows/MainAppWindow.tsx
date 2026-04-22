@@ -17,6 +17,7 @@ import {
   savePostProcessPreset,
   setLanguage,
   setPostProcessPreset,
+  setProviderLlmModel,
   showOnboardingWindow,
   setHotkey,
   setMicrophone,
@@ -259,6 +260,7 @@ export default function MainAppWindow(): React.JSX.Element {
     id: string
     name: string
     systemPrompt: string
+    enablePostProcessing: boolean
   }): Promise<void> => {
     await savePostProcessPreset(input)
     await syncMainAppState()
@@ -272,6 +274,7 @@ export default function MainAppWindow(): React.JSX.Element {
   const handleCreatePostProcessPreset = async (input: {
     name: string
     systemPrompt: string
+    enablePostProcessing: boolean
   }): Promise<void> => {
     await createPostProcessPreset(input)
     await syncMainAppState()
@@ -292,6 +295,14 @@ export default function MainAppWindow(): React.JSX.Element {
 
   const handleProviderChange = async (provider: ProviderKind): Promise<void> => {
     await setProvider(provider)
+    await syncMainAppState()
+  }
+
+  const handleProviderLlmModelChange = async (
+    provider: ProviderKind,
+    model: string
+  ): Promise<void> => {
+    await setProviderLlmModel({ provider, model })
     await syncMainAppState()
   }
 
@@ -478,6 +489,7 @@ export default function MainAppWindow(): React.JSX.Element {
           onHotkeyChange={handleHotkeyChange}
           onMicrophoneChange={handleMicrophoneChange}
           onProviderChange={handleProviderChange}
+          onProviderLlmModelChange={handleProviderLlmModelChange}
           onSaveDashscopeApiKey={handleSaveDashscopeApiKey}
           onSaveOpenAiApiKey={handleSaveOpenAiApiKey}
           onOpenPermissionSettings={handleOpenPermissionSettings}
@@ -490,7 +502,7 @@ export default function MainAppWindow(): React.JSX.Element {
         <HistoryDebugDialog
           open={selectedHistory !== null}
           onOpenChange={handleHistoryDetailOpenChange}
-          historyTitle={selectedHistory?.title ?? 'Transcription details'}
+          historyTitle={selectedHistory?.title ?? ''}
           detail={selectedHistoryDetail}
           loading={historyDetailLoading}
         />

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const baseState = {
   appInfo: {
     name: 'TIA Voice',
-    version: '1.1.0'
+    version: '1.1.2'
   },
   hotkeyHint: 'Hold the push-to-talk key to dictate into the current app.',
   registeredHotkey: null,
@@ -18,15 +18,43 @@ const baseState = {
   },
   providerLabels: {
     asr: 'qwen3-asr-flash',
-    llm: 'qwen-plus'
+    llm: 'qwen3.5-flash'
   },
   dashscope: {
     configured: false,
-    keyLabel: null
+    keyLabel: null,
+    asrModel: 'qwen3-asr-flash',
+    llmModel: 'qwen3.5-flash',
+    availableLlmModels: [
+      'qwen3-max',
+      'qwen3.6-plus',
+      'qwen3.5-plus',
+      'qwen-plus',
+      'qwen3.6-flash',
+      'qwen3.5-flash',
+      'qwen-flash'
+    ]
   },
   openai: {
     configured: false,
-    keyLabel: null
+    keyLabel: null,
+    asrModel: 'gpt-4o-mini-transcribe',
+    llmModel: 'gpt-5-mini',
+    availableLlmModels: [
+      'gpt-5.2',
+      'gpt-5.1',
+      'gpt-5',
+      'gpt-5-mini',
+      'gpt-5-nano',
+      'gpt-4.1',
+      'gpt-4.1-mini',
+      'gpt-4.1-nano',
+      'gpt-4o',
+      'gpt-4o-mini',
+      'o3',
+      'o4-mini',
+      'o3-mini'
+    ]
   },
   onboarding: {
     completed: true,
@@ -44,14 +72,16 @@ const baseState = {
       name: 'Formal',
       systemPrompt:
         'Prefer polished punctuation, complete sentences, and a professional tone while preserving the speaker intent, wording, and meaning.',
-      builtIn: true
+      builtIn: true,
+      enablePostProcessing: true
     },
     {
       id: 'casual',
       name: 'Casual',
       systemPrompt:
         'Prefer a conversational, relaxed tone with lighter punctuation and natural shorthand when it fits, while preserving the speaker intent, wording, and meaning.',
-      builtIn: true
+      builtIn: true,
+      enablePostProcessing: true
     }
   ],
   voiceBackendStatus: {
@@ -85,7 +115,7 @@ const baseState = {
   },
   autoUpdate: {
     status: 'idle' as const,
-    currentVersion: '1.1.0',
+    currentVersion: '1.1.2',
     availableVersion: null,
     releaseDate: null,
     lastCheckedAt: null,
@@ -98,6 +128,7 @@ const baseState = {
 const configuredState = {
   ...baseState,
   dashscope: {
+    ...baseState.dashscope,
     configured: true,
     keyLabel: 'Saved locally ••••1234'
   },
@@ -159,7 +190,8 @@ const {
   savePostProcessPresetMock,
   setHotkeyMock,
   setMicrophoneMock,
-  setProviderMock
+  setProviderMock,
+  setProviderLlmModelMock
 } = vi.hoisted(() => ({
   getHistoryPageMock: vi.fn(),
   getHistoryEntryDebugMock: vi.fn(),
@@ -183,7 +215,8 @@ const {
   savePostProcessPresetMock: vi.fn(),
   setHotkeyMock: vi.fn(),
   setMicrophoneMock: vi.fn(),
-  setProviderMock: vi.fn()
+  setProviderMock: vi.fn(),
+  setProviderLlmModelMock: vi.fn()
 }))
 
 vi.mock('../lib/ipc', () => ({
@@ -209,6 +242,7 @@ vi.mock('../lib/ipc', () => ({
   setHotkey: setHotkeyMock,
   setMicrophone: setMicrophoneMock,
   setProvider: setProviderMock,
+  setProviderLlmModel: setProviderLlmModelMock,
   subscribeToAppState: subscribeToAppStateMock
 }))
 
@@ -254,6 +288,7 @@ describe('MainAppWindow', () => {
     setHotkeyMock.mockReset()
     setMicrophoneMock.mockReset()
     setProviderMock.mockReset()
+    setProviderLlmModelMock.mockReset()
 
     subscribeToAppStateMock.mockReturnValue(() => undefined)
     getMainAppStateMock.mockResolvedValue(baseState)
@@ -268,14 +303,16 @@ describe('MainAppWindow', () => {
       id: 'preset-support',
       name: 'Support',
       systemPrompt: 'Sound warm and concise.',
-      builtIn: false
+      builtIn: false,
+      enablePostProcessing: true
     })
     resetPostProcessPresetMock.mockResolvedValue({
       id: 'formal',
       name: 'Formal',
       systemPrompt:
         'Prefer polished punctuation, complete sentences, and a professional tone while preserving the speaker intent, wording, and meaning.',
-      builtIn: true
+      builtIn: true,
+      enablePostProcessing: true
     })
     resetOnboardingMock.mockResolvedValue(undefined)
     saveDashscopeApiKeyMock.mockResolvedValue({
@@ -298,11 +335,13 @@ describe('MainAppWindow', () => {
       id: 'formal',
       name: 'Formal',
       systemPrompt: 'Keep it polished.',
-      builtIn: true
+      builtIn: true,
+      enablePostProcessing: true
     })
     setHotkeyMock.mockResolvedValue(undefined)
     setMicrophoneMock.mockResolvedValue(undefined)
     setProviderMock.mockResolvedValue(undefined)
+    setProviderLlmModelMock.mockResolvedValue(undefined)
   })
 
   it('renders main app shell', async () => {
@@ -356,6 +395,7 @@ describe('MainAppWindow', () => {
       ...baseState,
       selectedProvider: 'openai',
       openai: {
+        ...baseState.openai,
         configured: true,
         keyLabel: 'Saved locally ••••5678'
       },
@@ -378,6 +418,35 @@ describe('MainAppWindow', () => {
 
     await waitFor(() => {
       expect(setProviderMock).toHaveBeenCalledWith('openai')
+    })
+  })
+
+  it('updates the selected cleanup model for the active provider', async () => {
+    getMainAppStateMock.mockResolvedValueOnce(baseState).mockResolvedValueOnce({
+      ...baseState,
+      dashscope: {
+        ...baseState.dashscope,
+        llmModel: 'qwen3-max'
+      },
+      providerLabels: {
+        ...baseState.providerLabels,
+        llm: 'qwen3-max'
+      }
+    })
+
+    render(<MainAppWindow />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /settings/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^providers$/i }))
+    fireEvent.change(await screen.findByDisplayValue('qwen3.5-flash'), {
+      target: { value: 'qwen3-max' }
+    })
+
+    await waitFor(() => {
+      expect(setProviderLlmModelMock).toHaveBeenCalledWith({
+        provider: 'dashscope',
+        model: 'qwen3-max'
+      })
     })
   })
 
@@ -453,6 +522,7 @@ describe('MainAppWindow', () => {
 
     fireEvent.click(await screen.findByRole('link', { name: /presets/i }))
     fireEvent.click(await screen.findByRole('button', { name: /edit preset formal/i }))
+    fireEvent.click(await screen.findByRole('switch', { name: /use llm post-processing/i }))
     fireEvent.change(await screen.findByLabelText(/preset prompt/i), {
       target: { value: 'Keep the output polished and direct.' }
     })
@@ -462,7 +532,8 @@ describe('MainAppWindow', () => {
       expect(savePostProcessPresetMock).toHaveBeenCalledWith({
         id: 'formal',
         name: 'Formal',
-        systemPrompt: 'Keep the output polished and direct.'
+        systemPrompt: 'Keep the output polished and direct.',
+        enablePostProcessing: false
       })
     })
   })
@@ -487,15 +558,14 @@ describe('MainAppWindow', () => {
     fireEvent.change(await screen.findByLabelText(/preset name/i), {
       target: { value: 'Support' }
     })
-    fireEvent.change(await screen.findByLabelText(/preset prompt/i), {
-      target: { value: 'Sound warm and concise.' }
-    })
+    fireEvent.click(await screen.findByRole('switch', { name: /use llm post-processing/i }))
     fireEvent.click(await screen.findByRole('button', { name: /create preset/i }))
 
     await waitFor(() => {
       expect(createPostProcessPresetMock).toHaveBeenCalledWith({
         name: 'Support',
-        systemPrompt: 'Sound warm and concise.'
+        systemPrompt: '',
+        enablePostProcessing: false
       })
     })
   })
@@ -534,7 +604,7 @@ describe('MainAppWindow', () => {
       ...configuredState,
       autoUpdate: {
         status: 'update-available',
-        currentVersion: '1.1.0',
+        currentVersion: '1.1.2',
         availableVersion: '1.0.36',
         releaseDate: '2026-04-21T10:00:00.000Z',
         lastCheckedAt: Date.UTC(2026, 3, 21, 10, 15),
@@ -548,7 +618,7 @@ describe('MainAppWindow', () => {
     fireEvent.click(await screen.findByRole('button', { name: /settings/i }))
     fireEvent.click(await screen.findByRole('button', { name: /^about$/i }))
 
-    expect((await screen.findAllByText(/^v1.1.0$/)).length).toBeGreaterThan(0)
+    expect((await screen.findAllByText(/^v1.1.2$/)).length).toBeGreaterThan(0)
     expect(screen.getAllByText(/v1.0.36 is downloading/i).length).toBeGreaterThan(0)
 
     fireEvent.click(screen.getByRole('button', { name: /check for updates/i }))
@@ -563,7 +633,7 @@ describe('MainAppWindow', () => {
       ...configuredState,
       autoUpdate: {
         status: 'update-downloaded',
-        currentVersion: '1.1.0',
+        currentVersion: '1.1.2',
         availableVersion: '1.0.36',
         releaseDate: '2026-04-21T10:00:00.000Z',
         lastCheckedAt: Date.UTC(2026, 3, 21, 10, 15),
@@ -604,8 +674,9 @@ describe('MainAppWindow', () => {
       id: 'history-1',
       createdAt: 1,
       status: 'completed',
+      llmProcessing: 'skipped',
       transcript: 'raw transcript',
-      cleanedText: 'Processed transcript.',
+      cleanedText: 'raw transcript',
       audio: {
         bytes: new Uint8Array([0, 1, 2, 3]),
         mimeType: 'audio/webm',
@@ -624,8 +695,8 @@ describe('MainAppWindow', () => {
     })
     expect(await screen.findByText(/^Raw transcript$/)).toBeInTheDocument()
     expect(screen.getByText('raw transcript')).toBeInTheDocument()
-    expect(screen.getByText(/^LLM processed$/)).toBeInTheDocument()
-    expect(screen.getAllByText('Processed transcript.').length).toBeGreaterThan(0)
+    expect(screen.getByText(/^LLM processing$/)).toBeInTheDocument()
+    expect(screen.getByText(/^Skipped$/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /play audio/i })).toBeInTheDocument()
     expect(screen.getByRole('slider', { name: /seek audio/i })).toBeInTheDocument()
     expect(screen.getByTestId('audio-waveform')).toBeInTheDocument()

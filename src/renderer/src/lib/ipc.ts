@@ -21,14 +21,42 @@ const noopMainAppState = {
     selectedDeviceId: null,
     selectedDeviceLabel: null
   },
-  providerLabels: { asr: 'qwen3-asr-flash', llm: 'qwen-plus' },
+  providerLabels: { asr: 'qwen3-asr-flash', llm: 'qwen3.5-flash' },
   dashscope: {
     configured: false,
-    keyLabel: null
+    keyLabel: null,
+    asrModel: 'qwen3-asr-flash',
+    llmModel: 'qwen3.5-flash',
+    availableLlmModels: [
+      'qwen3-max',
+      'qwen3.6-plus',
+      'qwen3.5-plus',
+      'qwen-plus',
+      'qwen3.6-flash',
+      'qwen3.5-flash',
+      'qwen-flash'
+    ]
   },
   openai: {
     configured: false,
-    keyLabel: null
+    keyLabel: null,
+    asrModel: 'gpt-4o-mini-transcribe',
+    llmModel: 'gpt-5-mini',
+    availableLlmModels: [
+      'gpt-5.2',
+      'gpt-5.1',
+      'gpt-5',
+      'gpt-5-mini',
+      'gpt-5-nano',
+      'gpt-4.1',
+      'gpt-4.1-mini',
+      'gpt-4.1-nano',
+      'gpt-4o',
+      'gpt-4o-mini',
+      'o3',
+      'o4-mini',
+      'o3-mini'
+    ]
   },
   onboarding: {
     completed: false,
@@ -46,14 +74,16 @@ const noopMainAppState = {
       name: 'Formal',
       systemPrompt:
         'Prefer polished punctuation, complete sentences, and a professional tone while preserving the speaker intent, wording, and meaning.',
-      builtIn: true
+      builtIn: true,
+      enablePostProcessing: true
     },
     {
       id: 'casual',
       name: 'Casual',
       systemPrompt:
         'Prefer a conversational, relaxed tone with lighter punctuation and natural shorthand when it fits, while preserving the speaker intent, wording, and meaning.',
-      builtIn: true
+      builtIn: true,
+      enablePostProcessing: true
     }
   ],
   voiceBackendStatus: {
@@ -119,17 +149,20 @@ const noopApi: TiaApi = {
     name: 'Formal',
     systemPrompt:
       'Prefer polished punctuation, complete sentences, and a professional tone while preserving the speaker intent, wording, and meaning.',
-    builtIn: true
+    builtIn: true,
+    enablePostProcessing: true
   }),
   createPostProcessPreset: async (input) => ({
     id: 'preset-new',
     name: input.name,
     systemPrompt: input.systemPrompt,
-    builtIn: false
+    builtIn: false,
+    enablePostProcessing: input.enablePostProcessing
   }),
   setHotkey: async () => undefined,
   setMicrophone: async () => undefined,
   setProvider: async () => undefined,
+  setProviderLlmModel: async () => undefined,
   getProviderSetup: async () => ({ configured: false, keyLabel: null }),
   saveDashscopeApiKey: async () => ({ configured: true, keyLabel: 'Saved locally' }),
   saveOpenAiApiKey: async () => ({ configured: true, keyLabel: 'Saved locally' }),
@@ -262,6 +295,12 @@ export function setProvider(
   provider: Parameters<TiaApi['setProvider']>[0]
 ): ReturnType<TiaApi['setProvider']> {
   return getApi().setProvider(provider)
+}
+
+export function setProviderLlmModel(
+  input: Parameters<TiaApi['setProviderLlmModel']>[0]
+): ReturnType<TiaApi['setProviderLlmModel']> {
+  return getApi().setProviderLlmModel(input)
 }
 
 export function getProviderSetup(): ReturnType<TiaApi['getProviderSetup']> {

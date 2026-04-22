@@ -5,7 +5,7 @@ TIA Voice is an open source Electron app for push-to-talk voice typing on your d
 ## What It Does
 
 - Hold the push-to-talk key to capture speech from anywhere on your desktop.
-- Use `qwen3-asr-flash` for transcription and `qwen-plus` for cleanup or rewrite intent handling.
+- Use `qwen3-asr-flash` for transcription and `qwen3.5-flash` for cleanup or rewrite intent handling.
 - Keep a local history of recent voice sessions.
 - Let each user bring their own DashScope key instead of relying on hosted auth or token exchange.
 

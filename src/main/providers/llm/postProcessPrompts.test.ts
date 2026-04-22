@@ -13,6 +13,7 @@ describe('postProcessPrompts', () => {
         id: 'casual',
         name: 'Casual',
         builtIn: true,
+        enablePostProcessing: true,
         systemPrompt:
           'Prefer a conversational, relaxed tone with lighter punctuation and natural shorthand when it fits, while preserving the speaker intent, wording, and meaning.'
       },
@@ -35,6 +36,7 @@ describe('postProcessPrompts', () => {
       id: 'formal',
       name: 'Formal',
       builtIn: true,
+      enablePostProcessing: true,
       systemPrompt: 'Formal prompt'
     }).id).toBe('formal')
   })
@@ -44,5 +46,25 @@ describe('postProcessPrompts', () => {
       'formal',
       'casual'
     ])
+  })
+
+  it('defaults preset post-processing to enabled for legacy preset records', () => {
+    expect(
+      normalizePostProcessPreset(
+        {
+          id: 'legacy',
+          name: 'Legacy',
+          systemPrompt: 'Keep it clean.',
+          builtIn: false
+        },
+        {
+          id: 'fallback',
+          name: 'Fallback',
+          builtIn: false,
+          enablePostProcessing: true,
+          systemPrompt: 'Fallback prompt'
+        }
+      ).enablePostProcessing
+    ).toBe(true)
   })
 })

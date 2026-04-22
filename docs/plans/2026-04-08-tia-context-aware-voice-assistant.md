@@ -17,7 +17,7 @@
 - Transparent `RecordingBar` window with waveform
 - Renderer-side microphone capture with `MediaRecorder`
 - Abstract ASR interface with Qwen `qwen3-asr-flash` adapter
-- Abstract LLM interface with Qwen `qwen-plus` cleanup adapter
+- Abstract LLM interface with Qwen `qwen3.5-flash` cleanup adapter
 - `nut-js` clipboard-paste executor
 - Minimal `ChatWindow` thinking/result state
 - `MainAppWindow` placeholder for settings and history
@@ -769,7 +769,7 @@ export function createSettingsStore() {
     get() {
       return {
         hotkey: null,
-        providers: { asr: 'qwen3-asr-flash', llm: 'qwen-plus' },
+        providers: { asr: 'qwen3-asr-flash', llm: 'qwen3.5-flash' },
         history: []
       }
     }
