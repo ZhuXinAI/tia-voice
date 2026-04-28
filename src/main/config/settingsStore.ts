@@ -22,6 +22,11 @@ import {
   getDefaultProviderModels,
   normalizeProviderLlmModel
 } from '../../shared/providerModels'
+import {
+  DEFAULT_DICTIONARY_ENTRIES,
+  normalizeDictionaryEntries,
+  type DictionaryEntryRecord
+} from '../../shared/dictionary'
 
 export type ProviderKind = 'dashscope' | 'openai'
 
@@ -50,12 +55,18 @@ export type OnboardingState = {
   completed: boolean
 }
 
+export type FeatureSettings = {
+  selectionToolbar: boolean
+}
+
 export type AppSettings = {
   hotkey: TriggerKey
   provider: ProviderKind
   microphone: MicrophonePreference
   languagePreference: LanguagePreference
   themeMode: ThemeMode
+  features: FeatureSettings
+  dictionaryEntries: DictionaryEntryRecord[]
   postProcessPreset: PostProcessPresetId
   postProcessPresets: PostProcessPresetRecord[]
   providers: {
@@ -85,6 +96,16 @@ export type SettingsStore = {
   }
   setLanguagePreference(languagePreference: LanguagePreference): void
   setThemeMode(themeMode: ThemeMode): void
+  isSelectionToolbarEnabled(): boolean
+  setSelectionToolbarEnabled(enabled: boolean): void
+  getDictionaryEntries(): DictionaryEntryRecord[]
+  saveDictionaryEntry(input: {
+    id?: string | null
+    phrase: string
+    replacement: string
+    notes?: string | null
+  }): DictionaryEntryRecord
+  deleteDictionaryEntry(entryId: string): void
   getPostProcessPreset(): PostProcessPresetId
   getPostProcessPresets(): PostProcessPresetRecord[]
   getSelectedPostProcessPreset(): PostProcessPresetRecord
@@ -137,6 +158,8 @@ type PersistedSettings = {
   microphone?: Partial<MicrophonePreference>
   languagePreference?: LanguagePreference
   themeMode: ThemeMode
+  features?: Partial<FeatureSettings>
+  dictionaryEntries?: DictionaryEntryRecord[]
   postProcessPreset?: PostProcessPresetId
   postProcessPresets?: PostProcessPresetRecord[]
   providerModels?: Partial<Record<ProviderKind, Partial<AppSettings['providers']>>>
@@ -324,6 +347,12 @@ function normalizeOnboardingState(value: unknown): OnboardingState {
   }
 }
 
+function normalizeFeatureSettings(value: unknown): FeatureSettings {
+  return {
+    selectionToolbar: (value as Partial<FeatureSettings> | undefined)?.selectionToolbar === true
+  }
+}
+
 function maskApiKey(value: string | null): string | null {
   if (!value) {
     return null
@@ -377,6 +406,10 @@ export function createSettingsStore(
     },
     languagePreference: 'system',
     themeMode: 'system',
+    features: {
+      selectionToolbar: false
+    },
+    dictionaryEntries: DEFAULT_DICTIONARY_ENTRIES.map((entry) => ({ ...entry })),
     postProcessPreset: DEFAULT_POST_PROCESS_PRESET_ID,
     postProcessPresets: DEFAULT_POST_PROCESS_PRESETS.map((preset) => ({ ...preset })),
     providers: getProviderModels('dashscope'),
@@ -423,6 +456,8 @@ export function createSettingsStore(
         microphone: normalizeMicrophonePreference(parsed.microphone),
         languagePreference: normalizeLanguagePreference(parsed.languagePreference),
         themeMode: normalizeThemeMode(parsed.themeMode),
+        features: normalizeFeatureSettings(parsed.features),
+        dictionaryEntries: normalizeDictionaryEntries(parsed.dictionaryEntries),
         postProcessPreset: selectedPostProcessPreset.id,
         postProcessPresets,
         providers: { ...providerModels[provider] },
@@ -451,6 +486,10 @@ export function createSettingsStore(
       },
       languagePreference: state.languagePreference,
       themeMode: state.themeMode,
+      features: {
+        selectionToolbar: state.features.selectionToolbar
+      },
+      dictionaryEntries: state.dictionaryEntries.map((entry) => ({ ...entry })),
       postProcessPreset: state.postProcessPreset,
       postProcessPresets: state.postProcessPresets.map((preset) => ({ ...preset })),
       providerModels: {
@@ -476,6 +515,10 @@ export function createSettingsStore(
         providers: { ...providerModels[state.provider] },
         microphone: { ...state.microphone },
         languagePreference: state.languagePreference,
+        features: {
+          selectionToolbar: state.features.selectionToolbar
+        },
+        dictionaryEntries: state.dictionaryEntries.map((entry) => ({ ...entry })),
         postProcessPreset: state.postProcessPreset,
         postProcessPresets: state.postProcessPresets.map((preset) => ({ ...preset })),
         dashscopeApiKey: state.dashscopeApiKey,
@@ -594,6 +637,64 @@ export function createSettingsStore(
       }
 
       state.themeMode = normalized
+      persistState()
+    },
+    isSelectionToolbarEnabled(): boolean {
+      return state.features.selectionToolbar
+    },
+    setSelectionToolbarEnabled(enabled: boolean): void {
+      if (state.features.selectionToolbar === enabled) {
+        return
+      }
+
+      state.features = {
+        ...state.features,
+        selectionToolbar: enabled
+      }
+      persistState()
+    },
+    getDictionaryEntries(): DictionaryEntryRecord[] {
+      return state.dictionaryEntries.map((entry) => ({ ...entry }))
+    },
+    saveDictionaryEntry(input): DictionaryEntryRecord {
+      const phrase = normalizeString(input.phrase)
+      const replacement = normalizeString(input.replacement)
+
+      if (!phrase || !replacement) {
+        throw new Error('Dictionary phrase and normalized output are required.')
+      }
+
+      const id = normalizeString(input.id) ?? crypto.randomUUID()
+      const nextEntry: DictionaryEntryRecord = {
+        id,
+        phrase,
+        replacement,
+        notes: normalizeString(input.notes) ?? ''
+      }
+      const existingIndex = state.dictionaryEntries.findIndex((entry) => entry.id === id)
+
+      if (existingIndex >= 0) {
+        state.dictionaryEntries[existingIndex] = nextEntry
+      } else {
+        state.dictionaryEntries = [nextEntry, ...state.dictionaryEntries]
+      }
+
+      state.dictionaryEntries = normalizeDictionaryEntries(state.dictionaryEntries)
+      persistState()
+      return { ...nextEntry }
+    },
+    deleteDictionaryEntry(entryId: string): void {
+      const normalizedEntryId = normalizeString(entryId)
+      if (!normalizedEntryId) {
+        return
+      }
+
+      const nextEntries = state.dictionaryEntries.filter((entry) => entry.id !== normalizedEntryId)
+      if (nextEntries.length === state.dictionaryEntries.length) {
+        return
+      }
+
+      state.dictionaryEntries = nextEntries
       persistState()
     },
     getPostProcessPreset(): PostProcessPresetId {

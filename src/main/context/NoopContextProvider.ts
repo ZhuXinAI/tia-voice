@@ -9,6 +9,12 @@ export function createNoopContextProvider(): ContextProvider {
         provider: 'noop' as const,
         capturedAt: Date.now()
       }
+    },
+    async captureSelection() {
+      return null
+    },
+    subscribeToSelection() {
+      return () => undefined
     }
   }
 }

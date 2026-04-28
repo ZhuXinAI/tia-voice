@@ -6,10 +6,14 @@ describe('createVoicePipeline', () => {
   it('runs snapshot -> asr -> intent transform -> paste for selected text rewrites', async () => {
     const actionExecutor = { execute: vi.fn().mockResolvedValue(undefined) }
     const asrProvider = {
-      transcribe: vi.fn().mockResolvedValue({ text: 'Change this sentence to a more emotional one.' })
+      transcribe: vi
+        .fn()
+        .mockResolvedValue({ text: 'Change this sentence to a more emotional one.' })
     }
     const llmProvider = {
-      transform: vi.fn().mockResolvedValue({ text: 'Next week, my long-awaited moment finally arrives.' })
+      transform: vi
+        .fn()
+        .mockResolvedValue({ text: 'Next week, my long-awaited moment finally arrives.' })
     }
     const historyStore = {
       appendHistory: vi.fn(),
@@ -25,7 +29,16 @@ describe('createVoicePipeline', () => {
       readAudioClip: vi.fn()
     }
     const pipeline = createVoicePipeline({
-      contextProvider: { captureSnapshot: vi.fn().mockResolvedValue({ isInputFocused: null, selectedText: null, provider: 'noop', capturedAt: 1 }) },
+      contextProvider: {
+        captureSnapshot: vi
+          .fn()
+          .mockResolvedValue({
+            isInputFocused: null,
+            selectedText: null,
+            provider: 'noop',
+            capturedAt: 1
+          })
+      },
       asrProvider,
       llmProvider,
       actionExecutor,
@@ -36,6 +49,14 @@ describe('createVoicePipeline', () => {
         builtIn: true,
         enablePostProcessing: true
       }),
+      getDictionaryEntries: () => [
+        {
+          id: 'buildmind',
+          phrase: 'build mine',
+          replacement: 'BuildMind',
+          notes: 'Brand casing'
+        }
+      ],
       sessionStore: {
         begin: vi.fn(),
         getCurrent: vi.fn().mockReturnValue({
@@ -54,11 +75,23 @@ describe('createVoicePipeline', () => {
       hideRecordingBar: vi.fn()
     })
 
-    await pipeline.finishRecording({ mimeType: 'audio/webm', buffer: new Uint8Array([1]), durationMs: 1500 })
+    await pipeline.finishRecording({
+      mimeType: 'audio/webm',
+      buffer: new Uint8Array([1]),
+      durationMs: 1500
+    })
 
     expect(llmProvider.transform).toHaveBeenCalledWith({
       transcriptText: 'Change this sentence to a more emotional one.',
-      selectedText: 'Next week my time is coming'
+      selectedText: 'Next week my time is coming',
+      dictionaryEntries: [
+        {
+          id: 'buildmind',
+          phrase: 'build mine',
+          replacement: 'BuildMind',
+          notes: 'Brand casing'
+        }
+      ]
     })
     expect(actionExecutor.execute).toHaveBeenCalledWith({
       kind: 'paste-text',
@@ -86,7 +119,12 @@ describe('createVoicePipeline', () => {
       contextProvider: {
         captureSnapshot: vi
           .fn()
-          .mockResolvedValue({ isInputFocused: null, selectedText: null, provider: 'noop', capturedAt: 1 })
+          .mockResolvedValue({
+            isInputFocused: null,
+            selectedText: null,
+            provider: 'noop',
+            capturedAt: 1
+          })
       },
       asrProvider,
       llmProvider,
@@ -135,13 +173,23 @@ describe('createVoicePipeline', () => {
       saveAudioClip: vi.fn(),
       readAudioClip: vi
         .fn()
-        .mockResolvedValue({ mimeType: 'audio/webm', buffer: new Uint8Array([1]), durationMs: 2000, sizeBytes: 1 })
+        .mockResolvedValue({
+          mimeType: 'audio/webm',
+          buffer: new Uint8Array([1]),
+          durationMs: 2000,
+          sizeBytes: 1
+        })
     }
     const pipeline = createVoicePipeline({
       contextProvider: {
         captureSnapshot: vi
           .fn()
-          .mockResolvedValue({ isInputFocused: null, selectedText: null, provider: 'noop', capturedAt: 1 })
+          .mockResolvedValue({
+            isInputFocused: null,
+            selectedText: null,
+            provider: 'noop',
+            capturedAt: 1
+          })
       },
       asrProvider: { transcribe: vi.fn().mockResolvedValue({ text: 'hello world' }) },
       llmProvider: { transform: vi.fn().mockResolvedValue({ text: 'Hello world.' }) },
@@ -165,7 +213,10 @@ describe('createVoicePipeline', () => {
 
     await pipeline.retryHistoryEntry('history-1')
 
-    expect(actionExecutor.execute).toHaveBeenCalledWith({ kind: 'paste-text', text: 'Hello world.' })
+    expect(actionExecutor.execute).toHaveBeenCalledWith({
+      kind: 'paste-text',
+      text: 'Hello world.'
+    })
     expect(historyStore.readAudioClip).toHaveBeenCalledWith('history-1')
     expect(historyStore.updateHistoryEntry).toHaveBeenCalled()
   })
@@ -173,7 +224,12 @@ describe('createVoicePipeline', () => {
   it('ignores a new live capture while a previous one is still active', async () => {
     const captureSnapshot = vi
       .fn()
-      .mockResolvedValue({ isInputFocused: true, selectedText: 'first', provider: 'noop', capturedAt: 1 })
+      .mockResolvedValue({
+        isInputFocused: true,
+        selectedText: 'first',
+        provider: 'noop',
+        capturedAt: 1
+      })
     const sessionStore = {
       begin: vi.fn(),
       getCurrent: vi.fn().mockReturnValue(null),
@@ -229,7 +285,12 @@ describe('createVoicePipeline', () => {
       contextProvider: {
         captureSnapshot: vi
           .fn()
-          .mockResolvedValue({ isInputFocused: null, selectedText: null, provider: 'noop', capturedAt: 1 })
+          .mockResolvedValue({
+            isInputFocused: null,
+            selectedText: null,
+            provider: 'noop',
+            capturedAt: 1
+          })
       },
       asrProvider,
       llmProvider,

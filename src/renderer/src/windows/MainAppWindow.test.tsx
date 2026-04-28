@@ -65,6 +65,17 @@ const baseState = {
     resolved: 'en' as const
   },
   themeMode: 'system' as const,
+  features: {
+    selectionToolbar: false
+  },
+  dictionaryEntries: [
+    {
+      id: 'buildmind',
+      phrase: 'Buildmind',
+      replacement: 'BuildMind',
+      notes: 'Always keep the capital M in product and company references.'
+    }
+  ],
   postProcessPreset: 'formal' as const,
   postProcessPresets: [
     {
@@ -173,6 +184,8 @@ const {
   getMainAppStateMock,
   subscribeToAppStateMock,
   retryHistoryEntryMock,
+  saveDictionaryEntryMock,
+  deleteDictionaryEntryMock,
   completeOnboardingMock,
   createPostProcessPresetMock,
   resetPostProcessPresetMock,
@@ -185,6 +198,7 @@ const {
   checkForUpdatesMock,
   restartToUpdateMock,
   setLanguageMock,
+  setSelectionToolbarEnabledMock,
   setThemeModeMock,
   setPostProcessPresetMock,
   savePostProcessPresetMock,
@@ -198,6 +212,8 @@ const {
   getMainAppStateMock: vi.fn(),
   subscribeToAppStateMock: vi.fn(),
   retryHistoryEntryMock: vi.fn(),
+  saveDictionaryEntryMock: vi.fn(),
+  deleteDictionaryEntryMock: vi.fn(),
   completeOnboardingMock: vi.fn(),
   createPostProcessPresetMock: vi.fn(),
   resetPostProcessPresetMock: vi.fn(),
@@ -210,6 +226,7 @@ const {
   checkForUpdatesMock: vi.fn(),
   restartToUpdateMock: vi.fn(),
   setLanguageMock: vi.fn(),
+  setSelectionToolbarEnabledMock: vi.fn(),
   setThemeModeMock: vi.fn(),
   setPostProcessPresetMock: vi.fn(),
   savePostProcessPresetMock: vi.fn(),
@@ -228,6 +245,8 @@ vi.mock('../lib/ipc', () => ({
   getMainAppState: getMainAppStateMock,
   resetOnboarding: resetOnboardingMock,
   retryHistoryEntry: retryHistoryEntryMock,
+  saveDictionaryEntry: saveDictionaryEntryMock,
+  deleteDictionaryEntry: deleteDictionaryEntryMock,
   saveDashscopeApiKey: saveDashscopeApiKeyMock,
   saveOpenAiApiKey: saveOpenAiApiKeyMock,
   checkMicrophonePermission: checkMicrophonePermissionMock,
@@ -236,6 +255,7 @@ vi.mock('../lib/ipc', () => ({
   checkForUpdates: checkForUpdatesMock,
   restartToUpdate: restartToUpdateMock,
   setLanguage: setLanguageMock,
+  setSelectionToolbarEnabled: setSelectionToolbarEnabledMock,
   setThemeMode: setThemeModeMock,
   setPostProcessPreset: setPostProcessPresetMock,
   savePostProcessPreset: savePostProcessPresetMock,
@@ -270,6 +290,8 @@ describe('MainAppWindow', () => {
     getHistoryEntryDebugMock.mockReset()
     subscribeToAppStateMock.mockReset()
     retryHistoryEntryMock.mockReset()
+    saveDictionaryEntryMock.mockReset()
+    deleteDictionaryEntryMock.mockReset()
     completeOnboardingMock.mockReset()
     createPostProcessPresetMock.mockReset()
     resetPostProcessPresetMock.mockReset()
@@ -282,6 +304,7 @@ describe('MainAppWindow', () => {
     checkForUpdatesMock.mockReset()
     restartToUpdateMock.mockReset()
     setLanguageMock.mockReset()
+    setSelectionToolbarEnabledMock.mockReset()
     setThemeModeMock.mockReset()
     setPostProcessPresetMock.mockReset()
     savePostProcessPresetMock.mockReset()
@@ -298,6 +321,13 @@ describe('MainAppWindow', () => {
     })
     getHistoryEntryDebugMock.mockResolvedValue(null)
     retryHistoryEntryMock.mockResolvedValue(undefined)
+    saveDictionaryEntryMock.mockResolvedValue({
+      id: 'qwen',
+      phrase: 'queue win',
+      replacement: 'Qwen',
+      notes: ''
+    })
+    deleteDictionaryEntryMock.mockResolvedValue(undefined)
     completeOnboardingMock.mockResolvedValue(undefined)
     createPostProcessPresetMock.mockResolvedValue({
       id: 'preset-support',
@@ -329,6 +359,7 @@ describe('MainAppWindow', () => {
     checkForUpdatesMock.mockResolvedValue(baseState.autoUpdate)
     restartToUpdateMock.mockResolvedValue(undefined)
     setLanguageMock.mockResolvedValue(undefined)
+    setSelectionToolbarEnabledMock.mockResolvedValue(undefined)
     setThemeModeMock.mockResolvedValue(undefined)
     setPostProcessPresetMock.mockResolvedValue(undefined)
     savePostProcessPresetMock.mockResolvedValue({
@@ -353,6 +384,47 @@ describe('MainAppWindow', () => {
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /skip/i })).not.toBeInTheDocument()
     })
+  })
+
+  it('saves dictionary entries through the app bridge', async () => {
+    render(<MainAppWindow />)
+
+    fireEvent.click(await screen.findByText(/dictionary/i))
+    fireEvent.change(await screen.findByLabelText(/spoken phrase/i), {
+      target: { value: 'queue win' }
+    })
+    fireEvent.change(await screen.findByLabelText(/normalized output/i), {
+      target: { value: 'Qwen' }
+    })
+    fireEvent.click(await screen.findByRole('button', { name: /add phrase rule/i }))
+
+    await waitFor(() => {
+      expect(saveDictionaryEntryMock).toHaveBeenCalledWith({
+        phrase: 'queue win',
+        replacement: 'Qwen',
+        notes: ''
+      })
+    })
+  })
+
+  it('localizes the dictionary route in Simplified Chinese', async () => {
+    window.location.hash = '#/dictionary'
+    getMainAppStateMock.mockResolvedValue({
+      ...baseState,
+      language: {
+        preference: 'zh-CN',
+        resolved: 'zh-CN'
+      },
+      dictionaryEntries: []
+    })
+
+    render(<MainAppWindow />)
+
+    expect(await screen.findByText('发音词典')).toBeInTheDocument()
+    expect(screen.getByLabelText('口述短语')).toBeInTheDocument()
+    expect(screen.getByLabelText('规范输出')).toBeInTheDocument()
+    expect(screen.getByText('还没有词典条目')).toBeInTheDocument()
+    expect(screen.queryByText('Pronunciation dictionary')).not.toBeInTheDocument()
   })
 
   it('refreshes provider state after saving a DashScope key from settings', async () => {
@@ -467,6 +539,24 @@ describe('MainAppWindow', () => {
 
     await waitFor(() => {
       expect(setLanguageMock).toHaveBeenCalledWith('zh-CN')
+    })
+  })
+
+  it('toggles the selection toolbar feature from settings', async () => {
+    getMainAppStateMock.mockResolvedValueOnce(baseState).mockResolvedValueOnce({
+      ...baseState,
+      features: {
+        selectionToolbar: true
+      }
+    })
+
+    render(<MainAppWindow />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /settings/i }))
+    fireEvent.click(await screen.findByRole('switch', { name: /selection toolbar/i }))
+
+    await waitFor(() => {
+      expect(setSelectionToolbarEnabledMock).toHaveBeenCalledWith(true)
     })
   })
 

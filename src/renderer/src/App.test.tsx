@@ -15,4 +15,9 @@ describe('App', () => {
     render(<App initialWindowRole="main-app" />)
     expect(await screen.findByText(/workspace/i)).toBeInTheDocument()
   })
+
+  it('renders the selection toolbar role', () => {
+    render(<App initialWindowRole="selection-toolbar" />)
+    expect(screen.getByRole('button', { name: /read out loud/i })).toBeInTheDocument()
+  })
 })

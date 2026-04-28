@@ -10,12 +10,15 @@ import {
   resetOnboarding,
   restartToUpdate,
   retryHistoryEntry,
+  deleteDictionaryEntry,
   createPostProcessPreset,
+  saveDictionaryEntry,
   saveDashscopeApiKey,
   saveOpenAiApiKey,
   resetPostProcessPreset,
   savePostProcessPreset,
   setLanguage,
+  setSelectionToolbarEnabled,
   setPostProcessPreset,
   setProviderLlmModel,
   showOnboardingWindow,
@@ -36,7 +39,7 @@ import type {
 import { I18nProvider } from '@renderer/i18n'
 import { getNavigatorPreferredLocales, resolveAppLanguage } from '../../../shared/i18n/config'
 
-import { defaultMainAppState, starterDictionary } from './main-app/defaults'
+import { defaultMainAppState } from './main-app/defaults'
 import { DictionaryRoute } from './main-app/DictionaryRoute'
 import { HomeRoute } from './main-app/HomeRoute'
 import { HistoryDialog } from './main-app/HistoryDialog'
@@ -45,12 +48,7 @@ import { MainAppLayout } from './main-app/MainAppLayout'
 import { OnboardingDialog } from './main-app/OnboardingDialog'
 import { PresetsRoute } from './main-app/PresetsRoute'
 import { SettingsDialog } from './main-app/SettingsDialog'
-import type {
-  DictionaryPhrase,
-  MainAppHistoryEntry,
-  SettingsSection,
-  TiaHistoryDebugEntry
-} from './main-app/types'
+import type { MainAppHistoryEntry, SettingsSection, TiaHistoryDebugEntry } from './main-app/types'
 import { useAudioInputs } from './main-app/useAudioInputs'
 import { useHistoryPagination } from './main-app/useHistoryPagination'
 
@@ -68,7 +66,6 @@ export default function MainAppWindow(): React.JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general')
 
-  const [dictionary, setDictionary] = useState<DictionaryPhrase[]>(starterDictionary)
   const [phraseDraft, setPhraseDraft] = useState('')
   const [replacementDraft, setReplacementDraft] = useState('')
   const [noteDraft, setNoteDraft] = useState('')
@@ -198,22 +195,26 @@ export default function MainAppWindow(): React.JSX.Element {
     )
   }, [audioInputs, state.microphone.selectedDeviceId, state.microphone.selectedDeviceLabel])
 
-  const handleAddPhrase = (): void => {
+  const handleAddPhrase = async (): Promise<void> => {
     if (!phraseDraft.trim() || !replacementDraft.trim()) {
       return
     }
 
-    const next: DictionaryPhrase = {
-      id: crypto.randomUUID(),
+    await saveDictionaryEntry({
       phrase: phraseDraft.trim(),
       replacement: replacementDraft.trim(),
       notes: noteDraft.trim()
-    }
+    })
+    await syncMainAppState()
 
-    setDictionary((current) => [next, ...current])
     setPhraseDraft('')
     setReplacementDraft('')
     setNoteDraft('')
+  }
+
+  const handleDeletePhrase = async (entryId: string): Promise<void> => {
+    await deleteDictionaryEntry(entryId)
+    await syncMainAppState()
   }
 
   const handleOpenSettings = (section: SettingsSection = 'general'): void => {
@@ -328,6 +329,11 @@ export default function MainAppWindow(): React.JSX.Element {
     }
   }
 
+  const handleSelectionToolbarEnabledChange = async (enabled: boolean): Promise<void> => {
+    await setSelectionToolbarEnabled(enabled)
+    await syncMainAppState()
+  }
+
   const handleResetOnboarding = async (): Promise<void> => {
     await resetOnboarding()
     await showOnboardingWindow()
@@ -434,7 +440,7 @@ export default function MainAppWindow(): React.JSX.Element {
               path="dictionary"
               element={
                 <DictionaryRoute
-                  dictionary={dictionary}
+                  dictionary={state.dictionaryEntries}
                   phraseDraft={phraseDraft}
                   replacementDraft={replacementDraft}
                   noteDraft={noteDraft}
@@ -442,6 +448,7 @@ export default function MainAppWindow(): React.JSX.Element {
                   onReplacementDraftChange={setReplacementDraft}
                   onNoteDraftChange={setNoteDraft}
                   onAddPhrase={handleAddPhrase}
+                  onDeletePhrase={handleDeletePhrase}
                 />
               }
             />
@@ -484,8 +491,10 @@ export default function MainAppWindow(): React.JSX.Element {
           languagePreference={state.language.preference}
           resolvedLanguage={state.language.resolved}
           themeMode={state.themeMode}
+          selectionToolbarEnabled={state.features.selectionToolbar}
           onThemeModeChange={handleThemeModeChange}
           onLanguageChange={handleLanguageChange}
+          onSelectionToolbarEnabledChange={handleSelectionToolbarEnabledChange}
           onHotkeyChange={handleHotkeyChange}
           onMicrophoneChange={handleMicrophoneChange}
           onProviderChange={handleProviderChange}

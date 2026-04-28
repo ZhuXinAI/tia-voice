@@ -4,6 +4,7 @@ import {
   type AppInfoPayload,
   type AppLanguage,
   type AutoUpdateStatePayload,
+  type DictionaryEntryPayload,
   type LanguagePreference,
   type PostProcessPresetPayload,
   type PostProcessPresetId,
@@ -12,19 +13,26 @@ import {
   type PermissionStatePayload,
   type ProviderKind,
   type ProviderSetupPayload,
+  type SelectionToolbarStatePayload,
+  type TtsStatePayload,
   type TriggerKey,
   type ThemeMode
 } from '../main/ipc/channels'
+import type { TtsSource } from '../shared/tts'
 
 export type {
   AppLanguage,
+  DictionaryEntryPayload,
   LanguagePreference,
   PostProcessPresetId,
   ProviderKind,
+  SelectionToolbarStatePayload,
+  TtsStatePayload,
   ThemeMode,
   TriggerKey
 }
 export type { PostProcessPresetPayload }
+export type { TtsSource }
 
 export type ElectronBridge = {
   process: {
@@ -109,6 +117,10 @@ export type MainAppState = {
     resolved: AppLanguage
   }
   themeMode: ThemeMode
+  features: {
+    selectionToolbar: boolean
+  }
+  dictionaryEntries: DictionaryEntryPayload[]
   postProcessPreset: PostProcessPresetId
   postProcessPresets: PostProcessPresetPayload[]
   voiceBackendStatus: {
@@ -143,16 +155,30 @@ export type TiaApi = {
   submitRecordingArtifact(artifact: RecordingArtifact): Promise<void>
   reportRecordingFailure(detail: string): Promise<void>
   onChatState(listener: (state: TiaChatState) => void): () => void
+  onSelectionToolbarState(listener: (state: SelectionToolbarStatePayload) => void): () => void
+  onTtsState(listener: (state: TtsStatePayload) => void): () => void
   onAppState(listener: (state: MainAppState) => void): () => void
   getChatState(): Promise<TiaChatState>
+  getSelectionToolbarState(): Promise<SelectionToolbarStatePayload>
+  getTtsState(): Promise<TtsStatePayload>
   getMainAppState(): Promise<MainAppState>
   getHistoryPage(input?: { offset?: number; limit?: number }): Promise<HistoryPagePayload>
   getHistoryEntryDebug(entryId: string): Promise<TiaHistoryDebugEntry | null>
   retryHistoryEntry(entryId: string): Promise<void>
   startDictation(source?: 'global' | 'onboarding'): Promise<void>
   stopDictation(source?: 'global' | 'onboarding'): Promise<void>
+  startTextToSpeech(input: { text: string; source?: TtsSource }): Promise<void>
+  stopTextToSpeech(): Promise<void>
   setThemeMode(themeMode: ThemeMode): Promise<void>
   setLanguage(language: LanguagePreference): Promise<void>
+  setSelectionToolbarEnabled(enabled: boolean): Promise<void>
+  saveDictionaryEntry(input: {
+    id?: string | null
+    phrase: string
+    replacement: string
+    notes?: string | null
+  }): Promise<DictionaryEntryPayload>
+  deleteDictionaryEntry(entryId: string): Promise<void>
   setPostProcessPreset(presetId: PostProcessPresetId): Promise<void>
   savePostProcessPreset(input: {
     id: string
@@ -191,6 +217,12 @@ const RECORDING_COMPLETE_CHANNEL = 'recording:complete'
 const RECORDING_FAILED_CHANNEL = 'recording:failed'
 const CHAT_STATE_CHANNEL = 'chat:state'
 const CHAT_STATE_REQUEST_CHANNEL = 'chat:get-state'
+const SELECTION_TOOLBAR_STATE_CHANNEL = IPC_CHANNELS.selectionToolbar.state
+const SELECTION_TOOLBAR_STATE_REQUEST_CHANNEL = IPC_CHANNELS.selectionToolbar.getState
+const TTS_STATE_CHANNEL = IPC_CHANNELS.tts.state
+const TTS_STATE_REQUEST_CHANNEL = IPC_CHANNELS.tts.getState
+const TTS_START_CHANNEL = IPC_CHANNELS.tts.start
+const TTS_STOP_CHANNEL = IPC_CHANNELS.tts.stop
 const APP_STATE_CHANNEL = 'app:state'
 const APP_STATE_REQUEST_CHANNEL = 'app:get-state'
 const APP_GET_HISTORY_PAGE_CHANNEL = IPC_CHANNELS.app.getHistoryPage
@@ -200,6 +232,9 @@ const APP_START_DICTATION_CHANNEL = IPC_CHANNELS.app.startDictation
 const APP_STOP_DICTATION_CHANNEL = IPC_CHANNELS.app.stopDictation
 const APP_SET_THEME_MODE_CHANNEL = IPC_CHANNELS.app.setThemeMode
 const APP_SET_LANGUAGE_CHANNEL = IPC_CHANNELS.app.setLanguage
+const APP_SET_SELECTION_TOOLBAR_ENABLED_CHANNEL = IPC_CHANNELS.app.setSelectionToolbarEnabled
+const APP_SAVE_DICTIONARY_ENTRY_CHANNEL = IPC_CHANNELS.app.saveDictionaryEntry
+const APP_DELETE_DICTIONARY_ENTRY_CHANNEL = IPC_CHANNELS.app.deleteDictionaryEntry
 const APP_SET_POST_PROCESS_PRESET_CHANNEL = IPC_CHANNELS.app.setPostProcessPreset
 const APP_SAVE_POST_PROCESS_PRESET_CHANNEL = IPC_CHANNELS.app.savePostProcessPreset
 const APP_RESET_POST_PROCESS_PRESET_CHANNEL = IPC_CHANNELS.app.resetPostProcessPreset
@@ -251,6 +286,20 @@ const api: TiaApi = {
     ipcRenderer.on(CHAT_STATE_CHANNEL, wrapped)
     return () => ipcRenderer.removeListener(CHAT_STATE_CHANNEL, wrapped)
   },
+  onSelectionToolbarState(listener) {
+    const wrapped = (
+      _event: Electron.IpcRendererEvent,
+      state: SelectionToolbarStatePayload
+    ): void => listener(state)
+    ipcRenderer.on(SELECTION_TOOLBAR_STATE_CHANNEL, wrapped)
+    return () => ipcRenderer.removeListener(SELECTION_TOOLBAR_STATE_CHANNEL, wrapped)
+  },
+  onTtsState(listener) {
+    const wrapped = (_event: Electron.IpcRendererEvent, state: TtsStatePayload): void =>
+      listener(state)
+    ipcRenderer.on(TTS_STATE_CHANNEL, wrapped)
+    return () => ipcRenderer.removeListener(TTS_STATE_CHANNEL, wrapped)
+  },
   onAppState(listener) {
     const wrapped = (_event: Electron.IpcRendererEvent, state: MainAppState): void =>
       listener(state)
@@ -259,6 +308,12 @@ const api: TiaApi = {
   },
   getChatState() {
     return ipcRenderer.invoke(CHAT_STATE_REQUEST_CHANNEL)
+  },
+  getSelectionToolbarState() {
+    return ipcRenderer.invoke(SELECTION_TOOLBAR_STATE_REQUEST_CHANNEL)
+  },
+  getTtsState() {
+    return ipcRenderer.invoke(TTS_STATE_REQUEST_CHANNEL)
   },
   getMainAppState() {
     return ipcRenderer.invoke(APP_STATE_REQUEST_CHANNEL)
@@ -278,11 +333,26 @@ const api: TiaApi = {
   stopDictation(source = 'global') {
     return ipcRenderer.invoke(APP_STOP_DICTATION_CHANNEL, source)
   },
+  startTextToSpeech(input) {
+    return ipcRenderer.invoke(TTS_START_CHANNEL, input)
+  },
+  stopTextToSpeech() {
+    return ipcRenderer.invoke(TTS_STOP_CHANNEL)
+  },
   setThemeMode(themeMode) {
     return ipcRenderer.invoke(APP_SET_THEME_MODE_CHANNEL, themeMode)
   },
   setLanguage(language) {
     return ipcRenderer.invoke(APP_SET_LANGUAGE_CHANNEL, language)
+  },
+  setSelectionToolbarEnabled(enabled) {
+    return ipcRenderer.invoke(APP_SET_SELECTION_TOOLBAR_ENABLED_CHANNEL, enabled)
+  },
+  saveDictionaryEntry(input) {
+    return ipcRenderer.invoke(APP_SAVE_DICTIONARY_ENTRY_CHANNEL, input)
+  },
+  deleteDictionaryEntry(entryId) {
+    return ipcRenderer.invoke(APP_DELETE_DICTIONARY_ENTRY_CHANNEL, entryId)
   },
   setPostProcessPreset(presetId) {
     return ipcRenderer.invoke(APP_SET_POST_PROCESS_PRESET_CHANNEL, presetId)

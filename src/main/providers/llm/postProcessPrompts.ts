@@ -16,9 +16,24 @@ const BASE_POST_PROCESS_PROMPT = [
   'Decide if the spoken instruction is asking to modify the selected text.',
   'If it is an edit intent and selected text exists, rewrite the selected text to satisfy the instruction.',
   'If not, clean the spoken transcript for punctuation, grammar, and natural phrasing without changing meaning.',
+  'Apply dictionary entries as high-priority normalization rules when relevant.',
   'Keep the output in the same language unless the instruction asks for translation.',
   'Return only the final text. No explanation, JSON, markdown, or quotes.'
 ].join(' ')
+
+function buildDictionaryPrompt(dictionaryEntries: LlmTransformInput['dictionaryEntries']): string {
+  const entries = (dictionaryEntries ?? []).map((entry) => ({
+    spokenPhrase: entry.phrase,
+    normalizedOutput: entry.replacement,
+    ...(entry.notes ? { notes: entry.notes } : {})
+  }))
+
+  if (entries.length === 0) {
+    return 'No dictionary normalization rules configured.'
+  }
+
+  return JSON.stringify(entries, null, 2)
+}
 
 export const DEFAULT_POST_PROCESS_PRESETS: PostProcessPresetRecord[] = [
   {
@@ -39,9 +54,7 @@ export const DEFAULT_POST_PROCESS_PRESETS: PostProcessPresetRecord[] = [
   }
 ]
 
-export function getDefaultPostProcessPreset(
-  presetId: string
-): PostProcessPresetRecord | null {
+export function getDefaultPostProcessPreset(presetId: string): PostProcessPresetRecord | null {
   const preset = DEFAULT_POST_PROCESS_PRESETS.find((candidate) => candidate.id === presetId)
   return preset ? { ...preset } : null
 }
@@ -81,9 +94,7 @@ export function normalizePostProcessPreset(
   }
 }
 
-export function normalizePostProcessPresetCollection(
-  value: unknown
-): PostProcessPresetRecord[] {
+export function normalizePostProcessPresetCollection(value: unknown): PostProcessPresetRecord[] {
   if (!Array.isArray(value) || value.length === 0) {
     return DEFAULT_POST_PROCESS_PRESETS.map((preset) => ({ ...preset }))
   }
@@ -108,7 +119,9 @@ export function normalizePostProcessPresetCollection(
       return normalizePostProcessPreset(item, fallback)
     })
     .filter((preset, index, allPresets) => {
-      return preset.id.trim() !== '' && allPresets.findIndex((item) => item.id === preset.id) === index
+      return (
+        preset.id.trim() !== '' && allPresets.findIndex((item) => item.id === preset.id) === index
+      )
     })
 
   if (presets.length === 0) {
@@ -137,7 +150,9 @@ export function buildPostProcessPromptParts(input: {
   prompt: string
 } {
   return {
-    system: `${BASE_POST_PROCESS_PROMPT}\n\nPreset prompt:\n${input.preset.systemPrompt}`,
+    system: `${BASE_POST_PROCESS_PROMPT}\n\nPreset prompt:\n${input.preset.systemPrompt}\n\nDictionary normalization rules:\n${buildDictionaryPrompt(
+      input.request.dictionaryEntries
+    )}`,
     prompt: `Remaining context:\n${JSON.stringify(
       {
         instructionTranscript: input.request.transcriptText,

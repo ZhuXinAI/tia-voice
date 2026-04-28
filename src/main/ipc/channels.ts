@@ -4,6 +4,8 @@ import {
   type AppLanguage,
   type LanguagePreference
 } from '../../shared/i18n/config'
+import type { DictionaryEntryRecord } from '../../shared/dictionary'
+import type { SelectionToolbarStatePayload, TtsStatePayload } from '../../shared/tts'
 
 export const IPC_CHANNELS = {
   recording: {
@@ -19,6 +21,16 @@ export const IPC_CHANNELS = {
     state: 'chat:state',
     getState: 'chat:get-state'
   },
+  selectionToolbar: {
+    state: 'selection-toolbar:state',
+    getState: 'selection-toolbar:get-state'
+  },
+  tts: {
+    state: 'tts:state',
+    getState: 'tts:get-state',
+    start: 'tts:start',
+    stop: 'tts:stop'
+  },
   app: {
     state: 'app:state',
     getState: 'app:get-state',
@@ -29,6 +41,9 @@ export const IPC_CHANNELS = {
     stopDictation: 'app:stop-dictation',
     setThemeMode: 'app:set-theme-mode',
     setLanguage: 'app:set-language',
+    setSelectionToolbarEnabled: 'app:set-selection-toolbar-enabled',
+    saveDictionaryEntry: 'app:save-dictionary-entry',
+    deleteDictionaryEntry: 'app:delete-dictionary-entry',
     setPostProcessPreset: 'app:set-post-process-preset',
     savePostProcessPreset: 'app:save-post-process-preset',
     resetPostProcessPreset: 'app:reset-post-process-preset',
@@ -69,6 +84,8 @@ export type HistoryPagePayload = {
   totalCount: number
 }
 
+export type { SelectionToolbarStatePayload, TtsStatePayload }
+
 export type PermissionStatePayload = {
   kind: PermissionKind
   granted: boolean
@@ -85,6 +102,8 @@ export type PostProcessPresetPayload = {
   builtIn: boolean
   enablePostProcessing: boolean
 }
+
+export type DictionaryEntryPayload = DictionaryEntryRecord
 
 export type MainAppStatePayload = {
   appInfo: AppInfoPayload
@@ -123,6 +142,10 @@ export type MainAppStatePayload = {
     resolved: AppLanguage
   }
   themeMode: ThemeMode
+  features: {
+    selectionToolbar: boolean
+  }
+  dictionaryEntries: DictionaryEntryPayload[]
   postProcessPreset: PostProcessPresetId
   postProcessPresets: PostProcessPresetPayload[]
   voiceBackendStatus: {

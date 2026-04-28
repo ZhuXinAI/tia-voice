@@ -16,6 +16,8 @@ import { getDebugLogPath, logDebug } from '../logging/debugLogger'
 export function registerMainIpc(input: {
   getAppState: () => unknown
   getChatState: () => unknown
+  getSelectionToolbarState: () => unknown
+  getTtsState: () => unknown
   getHistoryPage: (input?: { offset?: number; limit?: number }) => unknown
   getHistoryEntryDebug: (entryId: string) => Promise<unknown>
   finishRecording: (artifact: RecordingArtifact) => Promise<void>
@@ -23,8 +25,21 @@ export function registerMainIpc(input: {
   retryHistoryEntry: (entryId: string) => Promise<void>
   startDictation: (source: 'global' | 'onboarding') => Promise<void>
   stopDictation: (source: 'global' | 'onboarding') => Promise<void>
+  startTextToSpeech: (input: {
+    text: string
+    source: 'selection-toolbar' | 'manual'
+  }) => Promise<void>
+  stopTextToSpeech: () => Promise<void>
   setThemeMode: (themeMode: ThemeMode) => void
   setLanguage: (language: LanguagePreference) => void
+  setSelectionToolbarEnabled: (enabled: boolean) => void
+  saveDictionaryEntry: (input: {
+    id?: string | null
+    phrase: string
+    replacement: string
+    notes?: string | null
+  }) => unknown
+  deleteDictionaryEntry: (entryId: string) => void
   setPostProcessPreset: (presetId: PostProcessPresetId) => void
   savePostProcessPreset: (input: {
     id: string
@@ -57,6 +72,8 @@ export function registerMainIpc(input: {
 }): void {
   ipcMain.removeHandler(IPC_CHANNELS.app.getState)
   ipcMain.removeHandler(IPC_CHANNELS.chat.getState)
+  ipcMain.removeHandler(IPC_CHANNELS.selectionToolbar.getState)
+  ipcMain.removeHandler(IPC_CHANNELS.tts.getState)
   ipcMain.removeHandler(IPC_CHANNELS.app.getHistoryPage)
   ipcMain.removeHandler(IPC_CHANNELS.app.getHistoryEntryDebug)
   ipcMain.removeHandler(IPC_CHANNELS.recording.complete)
@@ -64,8 +81,13 @@ export function registerMainIpc(input: {
   ipcMain.removeHandler(IPC_CHANNELS.app.retryHistory)
   ipcMain.removeHandler(IPC_CHANNELS.app.startDictation)
   ipcMain.removeHandler(IPC_CHANNELS.app.stopDictation)
+  ipcMain.removeHandler(IPC_CHANNELS.tts.start)
+  ipcMain.removeHandler(IPC_CHANNELS.tts.stop)
   ipcMain.removeHandler(IPC_CHANNELS.app.setThemeMode)
   ipcMain.removeHandler(IPC_CHANNELS.app.setLanguage)
+  ipcMain.removeHandler(IPC_CHANNELS.app.setSelectionToolbarEnabled)
+  ipcMain.removeHandler(IPC_CHANNELS.app.saveDictionaryEntry)
+  ipcMain.removeHandler(IPC_CHANNELS.app.deleteDictionaryEntry)
   ipcMain.removeHandler(IPC_CHANNELS.app.setPostProcessPreset)
   ipcMain.removeHandler(IPC_CHANNELS.app.savePostProcessPreset)
   ipcMain.removeHandler(IPC_CHANNELS.app.resetPostProcessPreset)
@@ -103,6 +125,8 @@ export function registerMainIpc(input: {
 
   ipcMain.handle(IPC_CHANNELS.app.getState, () => input.getAppState())
   ipcMain.handle(IPC_CHANNELS.chat.getState, () => input.getChatState())
+  ipcMain.handle(IPC_CHANNELS.selectionToolbar.getState, () => input.getSelectionToolbarState())
+  ipcMain.handle(IPC_CHANNELS.tts.getState, () => input.getTtsState())
   ipcMain.handle(
     IPC_CHANNELS.app.getHistoryPage,
     (_event, pageInput: { offset?: unknown; limit?: unknown } | undefined) => {
@@ -144,6 +168,22 @@ export function registerMainIpc(input: {
   ipcMain.handle(IPC_CHANNELS.app.stopDictation, async (_event, source: unknown) => {
     await input.stopDictation(source === 'onboarding' ? 'onboarding' : 'global')
   })
+  ipcMain.handle(
+    IPC_CHANNELS.tts.start,
+    async (_event, value: { text?: unknown; source?: unknown } | undefined) => {
+      if (typeof value?.text !== 'string' || value.text.trim() === '') {
+        throw new Error('A valid text string is required.')
+      }
+
+      await input.startTextToSpeech({
+        text: value.text,
+        source: value.source === 'manual' ? 'manual' : 'selection-toolbar'
+      })
+    }
+  )
+  ipcMain.handle(IPC_CHANNELS.tts.stop, async () => {
+    await input.stopTextToSpeech()
+  })
   ipcMain.handle(IPC_CHANNELS.app.setThemeMode, (_event, themeMode: unknown) => {
     if (typeof themeMode !== 'string' || !THEME_MODES.includes(themeMode as ThemeMode)) {
       return
@@ -161,6 +201,50 @@ export function registerMainIpc(input: {
 
     input.setLanguage(language as LanguagePreference)
   })
+  ipcMain.handle(IPC_CHANNELS.app.setSelectionToolbarEnabled, (_event, enabled: unknown) => {
+    if (typeof enabled !== 'boolean') {
+      return
+    }
+
+    input.setSelectionToolbarEnabled(enabled)
+  })
+  ipcMain.handle(
+    IPC_CHANNELS.app.saveDictionaryEntry,
+    (
+      _event,
+      value:
+        | {
+            id?: unknown
+            phrase?: unknown
+            replacement?: unknown
+            notes?: unknown
+          }
+        | undefined
+    ) => {
+      if (
+        typeof value?.phrase !== 'string' ||
+        value.phrase.trim() === '' ||
+        typeof value?.replacement !== 'string' ||
+        value.replacement.trim() === ''
+      ) {
+        throw new Error('Valid dictionary phrase and normalized output are required.')
+      }
+
+      return input.saveDictionaryEntry({
+        id: typeof value.id === 'string' && value.id.trim() !== '' ? value.id : null,
+        phrase: value.phrase,
+        replacement: value.replacement,
+        notes: typeof value.notes === 'string' ? value.notes : ''
+      })
+    }
+  )
+  ipcMain.handle(IPC_CHANNELS.app.deleteDictionaryEntry, (_event, entryId: unknown) => {
+    if (typeof entryId !== 'string' || entryId.trim() === '') {
+      return
+    }
+
+    input.deleteDictionaryEntry(entryId)
+  })
   ipcMain.handle(IPC_CHANNELS.app.setPostProcessPreset, (_event, presetId: unknown) => {
     if (typeof presetId !== 'string' || presetId.trim() === '') {
       return
@@ -172,12 +256,14 @@ export function registerMainIpc(input: {
     IPC_CHANNELS.app.savePostProcessPreset,
     (
       _event,
-      value: {
-        id?: unknown
-        name?: unknown
-        systemPrompt?: unknown
-        enablePostProcessing?: unknown
-      } | undefined
+      value:
+        | {
+            id?: unknown
+            name?: unknown
+            systemPrompt?: unknown
+            enablePostProcessing?: unknown
+          }
+        | undefined
     ) => {
       if (
         typeof value?.id !== 'string' ||

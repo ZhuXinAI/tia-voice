@@ -12,6 +12,8 @@ describe('createSettingsStore', () => {
     expect(store.get().providers.asr).toBe('qwen3-asr-flash')
     expect(store.get().themeMode).toBe('system')
     expect(store.get().languagePreference).toBe('system')
+    expect(store.isSelectionToolbarEnabled()).toBe(false)
+    expect(store.getDictionaryEntries()).toHaveLength(2)
     expect(store.getPostProcessPreset()).toBe('formal')
     expect(store.getPostProcessPresets()).toHaveLength(2)
     expect(store.hasDashscopeApiKey()).toBe(false)
@@ -48,7 +50,7 @@ describe('createSettingsStore', () => {
     rmSync(root, { recursive: true, force: true })
   })
 
-  it('persists provider, microphone, preset, language, and OpenAI key settings', () => {
+  it('persists provider, microphone, preset, language, feature, and OpenAI key settings', () => {
     const root = mkdtempSync(join(tmpdir(), 'tia-voice-settings-provider-'))
     const firstStore = createSettingsStore('MetaRight', root)
 
@@ -56,6 +58,12 @@ describe('createSettingsStore', () => {
     firstStore.setProviderLlmModel('openai', 'gpt-4.1-mini')
     firstStore.setPostProcessPreset('casual')
     firstStore.setLanguagePreference('zh-TW')
+    firstStore.setSelectionToolbarEnabled(true)
+    const dictionaryEntry = firstStore.saveDictionaryEntry({
+      phrase: 'build mine',
+      replacement: 'BuildMind',
+      notes: 'Brand casing'
+    })
     firstStore.setOpenAiApiKey('openai-test-key')
     firstStore.setHotkey('AltRight')
     firstStore.setMicrophone({
@@ -80,11 +88,30 @@ describe('createSettingsStore', () => {
     })
     expect(secondStore.getPostProcessPreset()).toBe('casual')
     expect(secondStore.get().languagePreference).toBe('zh-TW')
+    expect(secondStore.isSelectionToolbarEnabled()).toBe(true)
+    expect(secondStore.getDictionaryEntries()).toContainEqual(dictionaryEntry)
     expect(secondStore.get().hotkey).toBe('AltRight')
     expect(secondStore.getMicrophone()).toEqual({
       deviceId: 'usb-mic-1',
       label: 'USB Microphone'
     })
+
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('can remove persisted dictionary entries', () => {
+    const root = mkdtempSync(join(tmpdir(), 'tia-voice-settings-dictionary-'))
+    const firstStore = createSettingsStore('MetaRight', root)
+    const entry = firstStore.saveDictionaryEntry({
+      phrase: 'queue you',
+      replacement: 'Qwen',
+      notes: ''
+    })
+
+    firstStore.deleteDictionaryEntry(entry.id)
+
+    const secondStore = createSettingsStore('MetaRight', root)
+    expect(secondStore.getDictionaryEntries().some((item) => item.id === entry.id)).toBe(false)
 
     rmSync(root, { recursive: true, force: true })
   })

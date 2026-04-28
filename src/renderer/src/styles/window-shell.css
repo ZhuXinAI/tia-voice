@@ -3,7 +3,9 @@ body {
   user-select: none;
 }
 
-body[data-window-role='recording-bar'] {
+body[data-window-role='recording-bar'],
+body[data-window-role='selection-toolbar'],
+body[data-window-role='tts-player'] {
   background: transparent !important;
 }
 

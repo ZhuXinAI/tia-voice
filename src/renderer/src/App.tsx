@@ -5,6 +5,8 @@ import { getNavigatorPreferredLocales, resolveAppLanguage } from '../../shared/i
 import MainAppWindow from './windows/MainAppWindow'
 import ChatWindow from './windows/ChatWindow'
 import RecordingBarWindow from './windows/RecordingBarWindow'
+import SelectionToolbarWindow from './windows/SelectionToolbarWindow'
+import TtsPlayerWindow from './windows/TtsPlayerWindow'
 import { getWindowRoleFromLocation, type WindowRole } from './lib/windowRole'
 
 export default function App(props: { initialWindowRole?: WindowRole }): React.JSX.Element {
@@ -30,6 +32,22 @@ export default function App(props: { initialWindowRole?: WindowRole }): React.JS
     return (
       <I18nProvider language={fallbackLanguage}>
         <ChatWindow />
+      </I18nProvider>
+    )
+  }
+
+  if (role === 'selection-toolbar') {
+    return (
+      <I18nProvider language={fallbackLanguage}>
+        <SelectionToolbarWindow />
+      </I18nProvider>
+    )
+  }
+
+  if (role === 'tts-player') {
+    return (
+      <I18nProvider language={fallbackLanguage}>
+        <TtsPlayerWindow />
       </I18nProvider>
     )
   }

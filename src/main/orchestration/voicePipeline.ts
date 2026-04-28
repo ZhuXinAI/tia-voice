@@ -7,6 +7,7 @@ import type { LlmProvider } from '../providers/llm/LlmProvider'
 import type { PostProcessPresetRecord } from '../providers/llm/postProcessPrompts'
 import type { ChatState, RecordingArtifact } from '../recording/types'
 import type { VoiceSession } from './ephemeralSessionStore'
+import type { DictionaryEntryRecord } from '../../shared/dictionary'
 
 const MIN_RECORDING_DURATION_MS = 1000
 
@@ -16,6 +17,7 @@ export function createVoicePipeline(dependencies: {
   llmProvider: LlmProvider
   actionExecutor: ActionExecutor
   getPostProcessPreset: () => PostProcessPresetRecord
+  getDictionaryEntries?: () => DictionaryEntryRecord[]
   sessionStore: {
     begin(snapshot: Awaited<ReturnType<ContextProvider['captureSnapshot']>>): VoiceSession
     getCurrent(): VoiceSession | null
@@ -109,9 +111,11 @@ export function createVoicePipeline(dependencies: {
           presetId: postProcessPreset.id,
           hasSelectedText: Boolean(input.selectedText)
         })
+        const dictionaryEntries = dependencies.getDictionaryEntries?.() ?? []
         const transformed = await dependencies.llmProvider.transform({
           transcriptText,
-          selectedText: input.selectedText
+          selectedText: input.selectedText,
+          ...(dictionaryEntries.length > 0 ? { dictionaryEntries } : {})
         })
         cleanedText = transformed.text
         logDebug('voice-pipeline', 'LLM transform completion completed', {

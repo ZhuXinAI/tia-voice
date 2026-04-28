@@ -2,9 +2,12 @@ import type {
   AppLanguage,
   RecordingArtifact,
   RecordingCommand,
+  SelectionToolbarStatePayload,
   TiaApi,
-  TiaChatState
+  TiaChatState,
+  TtsStatePayload
 } from '../../../preload/index'
+import { DEFAULT_DICTIONARY_ENTRIES } from '../../../shared/dictionary'
 
 export type Unsubscribe = () => void
 
@@ -67,6 +70,10 @@ const noopMainAppState = {
     resolved: 'en' as AppLanguage
   },
   themeMode: 'system' as const,
+  features: {
+    selectionToolbar: false
+  },
+  dictionaryEntries: DEFAULT_DICTIONARY_ENTRIES.map((entry) => ({ ...entry })),
   postProcessPreset: 'formal' as const,
   postProcessPresets: [
     {
@@ -132,16 +139,42 @@ const noopApi: TiaApi = {
   submitRecordingArtifact: async () => undefined,
   reportRecordingFailure: async () => undefined,
   onChatState: () => () => undefined,
+  onSelectionToolbarState: () => () => undefined,
+  onTtsState: () => () => undefined,
   onAppState: () => () => undefined,
   getChatState: async () => ({ phase: 'idle' }),
+  getSelectionToolbarState: async () => ({ visible: false, text: '', sourceApp: null }),
+  getTtsState: async () => ({
+    status: 'idle',
+    sessionId: null,
+    source: null,
+    text: '',
+    audioUrl: null,
+    audioExpiresAt: null,
+    segments: [],
+    voice: null,
+    model: null,
+    createdAt: null,
+    error: null
+  }),
   getMainAppState: async () => noopMainAppState,
   getHistoryPage: async () => ({ items: [], totalCount: 0 }),
   getHistoryEntryDebug: async () => null,
   retryHistoryEntry: async () => undefined,
   startDictation: async () => undefined,
   stopDictation: async () => undefined,
+  startTextToSpeech: async () => undefined,
+  stopTextToSpeech: async () => undefined,
   setThemeMode: async () => undefined,
   setLanguage: async () => undefined,
+  setSelectionToolbarEnabled: async () => undefined,
+  saveDictionaryEntry: async (input) => ({
+    id: input.id ?? 'dictionary-new',
+    phrase: input.phrase,
+    replacement: input.replacement,
+    notes: input.notes ?? ''
+  }),
+  deleteDictionaryEntry: async () => undefined,
   setPostProcessPreset: async () => undefined,
   savePostProcessPreset: async (input) => ({ ...input, builtIn: false }),
   resetPostProcessPreset: async () => ({
@@ -201,6 +234,16 @@ export function subscribeToChatState(listener: (state: TiaChatState) => void): U
   return getApi().onChatState(listener)
 }
 
+export function subscribeToSelectionToolbarState(
+  listener: (state: SelectionToolbarStatePayload) => void
+): Unsubscribe {
+  return getApi().onSelectionToolbarState(listener)
+}
+
+export function subscribeToTtsState(listener: (state: TtsStatePayload) => void): Unsubscribe {
+  return getApi().onTtsState(listener)
+}
+
 export function subscribeToAppState(
   listener: (state: Awaited<ReturnType<TiaApi['getMainAppState']>>) => void
 ): Unsubscribe {
@@ -209,6 +252,14 @@ export function subscribeToAppState(
 
 export function getChatState(): Promise<TiaChatState> {
   return getApi().getChatState()
+}
+
+export function getSelectionToolbarState(): Promise<SelectionToolbarStatePayload> {
+  return getApi().getSelectionToolbarState()
+}
+
+export function getTtsState(): Promise<TtsStatePayload> {
+  return getApi().getTtsState()
 }
 
 export function getMainAppState(): ReturnType<TiaApi['getMainAppState']> {
@@ -243,6 +294,16 @@ export function stopDictation(
   return getApi().stopDictation(source)
 }
 
+export function startTextToSpeech(
+  input: Parameters<TiaApi['startTextToSpeech']>[0]
+): ReturnType<TiaApi['startTextToSpeech']> {
+  return getApi().startTextToSpeech(input)
+}
+
+export function stopTextToSpeech(): ReturnType<TiaApi['stopTextToSpeech']> {
+  return getApi().stopTextToSpeech()
+}
+
 export function setThemeMode(
   themeMode: Parameters<TiaApi['setThemeMode']>[0]
 ): ReturnType<TiaApi['setThemeMode']> {
@@ -253,6 +314,24 @@ export function setLanguage(
   language: Parameters<TiaApi['setLanguage']>[0]
 ): ReturnType<TiaApi['setLanguage']> {
   return getApi().setLanguage(language)
+}
+
+export function setSelectionToolbarEnabled(
+  enabled: Parameters<TiaApi['setSelectionToolbarEnabled']>[0]
+): ReturnType<TiaApi['setSelectionToolbarEnabled']> {
+  return getApi().setSelectionToolbarEnabled(enabled)
+}
+
+export function saveDictionaryEntry(
+  input: Parameters<TiaApi['saveDictionaryEntry']>[0]
+): ReturnType<TiaApi['saveDictionaryEntry']> {
+  return getApi().saveDictionaryEntry(input)
+}
+
+export function deleteDictionaryEntry(
+  entryId: Parameters<TiaApi['deleteDictionaryEntry']>[0]
+): ReturnType<TiaApi['deleteDictionaryEntry']> {
+  return getApi().deleteDictionaryEntry(entryId)
 }
 
 export function setPostProcessPreset(

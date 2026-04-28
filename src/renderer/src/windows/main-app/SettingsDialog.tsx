@@ -1,5 +1,14 @@
 import { useState } from 'react'
-import { Info, Keyboard, Languages, Mic2, Settings2, ShieldAlert, SunMoon } from 'lucide-react'
+import {
+  Info,
+  Keyboard,
+  Languages,
+  Mic2,
+  Settings2,
+  ShieldAlert,
+  SunMoon,
+  Volume2
+} from 'lucide-react'
 
 import { Button } from '@renderer/components/ui/button'
 import { Card, CardContent } from '@renderer/components/ui/card'
@@ -46,8 +55,10 @@ type SettingsDialogProps = {
   languagePreference: LanguagePreference
   resolvedLanguage: AppLanguage
   themeMode: ThemeMode
+  selectionToolbarEnabled: boolean
   onThemeModeChange: (themeMode: ThemeMode) => Promise<void>
   onLanguageChange: (language: LanguagePreference) => Promise<void>
+  onSelectionToolbarEnabledChange: (enabled: boolean) => Promise<void>
   onHotkeyChange: (hotkey: TriggerKey) => Promise<void>
   onMicrophoneChange: (input: { deviceId: string | null; label: string | null }) => Promise<void>
   onProviderChange: (provider: ProviderKind) => Promise<void>
@@ -194,8 +205,10 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
     languagePreference,
     resolvedLanguage,
     themeMode,
+    selectionToolbarEnabled,
     onThemeModeChange,
     onLanguageChange,
+    onSelectionToolbarEnabledChange,
     onHotkeyChange,
     onMicrophoneChange,
     onProviderChange,
@@ -215,6 +228,7 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
 
   const [themePending, setThemePending] = useState(false)
   const [languagePending, setLanguagePending] = useState<LanguagePreference | null>(null)
+  const [selectionToolbarPending, setSelectionToolbarPending] = useState(false)
   const [hotkeyPending, setHotkeyPending] = useState<TriggerKey | null>(null)
   const [microphonePending, setMicrophonePending] = useState<string | null>(null)
   const [providerPending, setProviderPending] = useState<ProviderKind | null>(null)
@@ -263,6 +277,19 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
       await onLanguageChange(language)
     } finally {
       setLanguagePending(null)
+    }
+  }
+
+  const handleSelectionToolbarChange = async (enabled: boolean): Promise<void> => {
+    if (selectionToolbarPending || selectionToolbarEnabled === enabled) {
+      return
+    }
+
+    setSelectionToolbarPending(true)
+    try {
+      await onSelectionToolbarEnabledChange(enabled)
+    } finally {
+      setSelectionToolbarPending(false)
     }
   }
 
@@ -469,6 +496,29 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
                           </Button>
                         ))}
                       </div>
+                    </div>
+
+                    <Separator />
+
+                    <div className="flex items-start gap-4 p-5">
+                      <Volume2 className="mt-0.5 h-5 w-5 text-muted-foreground" />
+                      <div className="flex-1 space-y-1">
+                        <p className="font-medium">{t('settings.selectionToolbar')}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {t('settings.selectionToolbarDetail')}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {t('settings.selectionToolbarHint')}
+                        </p>
+                      </div>
+                      <Switch
+                        checked={selectionToolbarEnabled}
+                        disabled={selectionToolbarPending}
+                        aria-label={t('settings.selectionToolbar')}
+                        onCheckedChange={(checked) =>
+                          void handleSelectionToolbarChange(Boolean(checked))
+                        }
+                      />
                     </div>
 
                     <Separator />

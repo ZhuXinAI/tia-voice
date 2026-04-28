@@ -1,4 +1,6 @@
-import type { DictionaryPhrase, MainAppState } from './types'
+import { DEFAULT_DICTIONARY_ENTRIES } from '../../../../shared/dictionary'
+
+import type { MainAppState } from './types'
 
 export const defaultMainAppState: MainAppState = {
   appInfo: {
@@ -62,6 +64,10 @@ export const defaultMainAppState: MainAppState = {
     resolved: 'en'
   },
   themeMode: 'system',
+  features: {
+    selectionToolbar: false
+  },
+  dictionaryEntries: DEFAULT_DICTIONARY_ENTRIES.map((entry) => ({ ...entry })),
   postProcessPreset: 'formal',
   postProcessPresets: [
     {
@@ -121,18 +127,3 @@ export const defaultMainAppState: MainAppState = {
   },
   history: []
 }
-
-export const starterDictionary: DictionaryPhrase[] = [
-  {
-    id: '1',
-    phrase: 'Buildmind',
-    replacement: 'BuildMind',
-    notes: 'Always keep the capital M in product and company references.'
-  },
-  {
-    id: '2',
-    phrase: 'TIA voice',
-    replacement: 'TIA Voice',
-    notes: 'Use title case when referring to the desktop product.'
-  }
-]

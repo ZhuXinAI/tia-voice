@@ -3,17 +3,29 @@ import { existsSync } from 'fs'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 
-import { IPC_CHANNELS, type MainAppStatePayload } from '../ipc/channels'
+import {
+  IPC_CHANNELS,
+  type MainAppStatePayload,
+  type SelectionToolbarStatePayload,
+  type TtsStatePayload
+} from '../ipc/channels'
 import type { ChatState, RecordingCommand } from '../recording/types'
+import { DEFAULT_DICTIONARY_ENTRIES } from '../../shared/dictionary'
 
-export type WindowRole = 'main-app' | 'recording-bar' | 'chat'
+export type WindowRole = 'main-app' | 'recording-bar' | 'chat' | 'selection-toolbar' | 'tts-player'
 export type WindowManager = {
   getMainAppWindow(): BrowserWindow
   getChatState(): ChatState
+  getSelectionToolbarState(): SelectionToolbarStatePayload
+  getTtsState(): TtsStatePayload
   getAppState(): MainAppStatePayload
   showRecordingBar(command: RecordingCommand): void
   stopRecordingBar(): void
   hideRecordingBar(): void
+  showSelectionToolbar(state: SelectionToolbarStatePayload): void
+  hideSelectionToolbar(): void
+  setTtsState(state: TtsStatePayload): void
+  hideTtsPlayer(): void
   closeAllWindows(): void
   setChatState(state: ChatState): void
   setAppState(state: MainAppStatePayload): void
@@ -125,8 +137,28 @@ export function createWindowManager(input: {
   mainAppWindow: BrowserWindow
   recordingBarWindow: BrowserWindow
   chatWindow?: BrowserWindow
+  selectionToolbarWindow?: BrowserWindow
+  ttsPlayerWindow?: BrowserWindow
 }): WindowManager {
   let chatState: ChatState = { phase: 'idle' }
+  let selectionToolbarState: SelectionToolbarStatePayload = {
+    visible: false,
+    text: '',
+    sourceApp: null
+  }
+  let ttsState: TtsStatePayload = {
+    status: 'idle',
+    sessionId: null,
+    source: null,
+    text: '',
+    audioUrl: null,
+    audioExpiresAt: null,
+    segments: [],
+    voice: null,
+    model: null,
+    createdAt: null,
+    error: null
+  }
   let appState: MainAppStatePayload = {
     appInfo: {
       name: 'TIA Voice',
@@ -189,6 +221,10 @@ export function createWindowManager(input: {
       resolved: 'en'
     },
     themeMode: 'system',
+    features: {
+      selectionToolbar: false
+    },
+    dictionaryEntries: DEFAULT_DICTIONARY_ENTRIES.map((entry) => ({ ...entry })),
     postProcessPreset: 'formal',
     postProcessPresets: [
       {
@@ -256,6 +292,12 @@ export function createWindowManager(input: {
     getChatState(): ChatState {
       return chatState
     },
+    getSelectionToolbarState(): SelectionToolbarStatePayload {
+      return selectionToolbarState
+    },
+    getTtsState(): TtsStatePayload {
+      return ttsState
+    },
     getAppState(): MainAppStatePayload {
       return appState
     },
@@ -271,7 +313,74 @@ export function createWindowManager(input: {
         input.recordingBarWindow.hide()
       }
     },
+    showSelectionToolbar(state: SelectionToolbarStatePayload): void {
+      selectionToolbarState = state
+
+      if (!input.selectionToolbarWindow) {
+        return
+      }
+
+      showOverlayWindow(input.selectionToolbarWindow)
+      sendWhenReady(input.selectionToolbarWindow, IPC_CHANNELS.selectionToolbar.state, state)
+    },
+    hideSelectionToolbar(): void {
+      selectionToolbarState = {
+        visible: false,
+        text: '',
+        sourceApp: null
+      }
+
+      if (!input.selectionToolbarWindow || input.selectionToolbarWindow.isDestroyed()) {
+        return
+      }
+
+      input.selectionToolbarWindow.hide()
+      sendWhenReady(
+        input.selectionToolbarWindow,
+        IPC_CHANNELS.selectionToolbar.state,
+        selectionToolbarState
+      )
+    },
+    setTtsState(state: TtsStatePayload): void {
+      ttsState = state
+
+      if (!input.ttsPlayerWindow) {
+        return
+      }
+
+      if (state.status === 'idle') {
+        input.ttsPlayerWindow.hide()
+      } else {
+        showOverlayWindow(input.ttsPlayerWindow)
+      }
+
+      sendWhenReady(input.ttsPlayerWindow, IPC_CHANNELS.tts.state, state)
+    },
+    hideTtsPlayer(): void {
+      ttsState = {
+        status: 'idle',
+        sessionId: null,
+        source: null,
+        text: '',
+        audioUrl: null,
+        audioExpiresAt: null,
+        segments: [],
+        voice: null,
+        model: null,
+        createdAt: null,
+        error: null
+      }
+
+      if (!input.ttsPlayerWindow || input.ttsPlayerWindow.isDestroyed()) {
+        return
+      }
+
+      input.ttsPlayerWindow.hide()
+      sendWhenReady(input.ttsPlayerWindow, IPC_CHANNELS.tts.state, ttsState)
+    },
     closeAllWindows(): void {
+      closeManagedWindow(input.ttsPlayerWindow)
+      closeManagedWindow(input.selectionToolbarWindow)
       closeManagedWindow(input.chatWindow)
       closeManagedWindow(input.recordingBarWindow)
       closeManagedWindow(input.mainAppWindow)

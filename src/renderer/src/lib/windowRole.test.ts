@@ -10,6 +10,10 @@ describe('getWindowRoleFromLocation', () => {
     expect(getWindowRoleFromLocation('?window=recording-bar')).toBe('recording-bar')
   })
 
+  it('reads the tts player role from the query string', () => {
+    expect(getWindowRoleFromLocation('?window=tts-player')).toBe('tts-player')
+  })
+
   it('falls back to main-app for the legacy onboarding role', () => {
     expect(getWindowRoleFromLocation('?window=onboarding')).toBe('main-app')
   })

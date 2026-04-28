@@ -2,16 +2,16 @@ import { BrowserWindow, screen } from 'electron'
 
 import { loadRendererWindow } from './windowManager'
 
-export async function createRecordingBarWindow(
+export async function createTtsPlayerWindow(
   preloadPath: string,
   options?: { load?: boolean }
 ): Promise<BrowserWindow> {
   const shouldLoad = options?.load ?? true
   const bounds = screen.getPrimaryDisplay().workArea
-  const width = 400
-  const height = 60
-  const x = Math.round(bounds.x + bounds.width / 2 - width / 2)
-  const y = Math.round(bounds.y + bounds.height - height - 28)
+  const width = 440
+  const height = 260
+  const x = Math.round(bounds.x + bounds.width - width - 36)
+  const y = Math.round(bounds.y + bounds.height - height - 120)
 
   const window = new BrowserWindow({
     width,
@@ -22,11 +22,11 @@ export async function createRecordingBarWindow(
     frame: false,
     transparent: true,
     resizable: false,
-    movable: false,
-    hasShadow: false,
+    movable: true,
+    hasShadow: true,
     fullscreenable: false,
     skipTaskbar: true,
-    focusable: false,
+    focusable: true,
     alwaysOnTop: true,
     webPreferences: {
       preload: preloadPath,
@@ -37,10 +37,9 @@ export async function createRecordingBarWindow(
   })
 
   window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  window.setIgnoreMouseEvents(true, { forward: true })
 
   if (shouldLoad) {
-    await loadRendererWindow(window, 'recording-bar')
+    await loadRendererWindow(window, 'tts-player')
   }
 
   return window

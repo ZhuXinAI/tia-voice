@@ -8,6 +8,7 @@ import {
   Tray,
   globalShortcut,
   nativeImage,
+  screen,
   systemPreferences,
   shell,
   type NativeImage
@@ -21,6 +22,7 @@ import { createSettingsStore, type ProviderKind } from '../config/settingsStore'
 import { loadAppEnv, type TriggerKey } from '../config/env'
 import { createNoopContextProvider } from '../context/NoopContextProvider'
 import { createSelectionHookContextProvider } from '../context/SelectionHookContextProvider'
+import type { ContextSelection, SelectionBounds } from '../context/types'
 import { createGlobalHotkeyService } from '../hotkeys/globalHotkeyService'
 import {
   buildHotkeyHint,
@@ -37,6 +39,7 @@ import type {
   PermissionKind,
   PermissionStatePayload,
   PermissionStatus,
+  TtsStatePayload,
   ThemeMode
 } from '../ipc/channels'
 import { getDebugLogPath, logDebug } from '../logging/debugLogger'
@@ -46,10 +49,13 @@ import { createOpenAiAsrProvider } from '../providers/asr/OpenAiAsrProvider'
 import { createQwenAsrProvider } from '../providers/asr/QwenAsrProvider'
 import { createOpenAiCleanupProvider } from '../providers/llm/OpenAiCleanupProvider'
 import { createQwenCleanupProvider } from '../providers/llm/QwenCleanupProvider'
+import { createCosyVoiceTtsProvider } from '../providers/tts/CosyVoiceTtsProvider'
 import type { PostProcessPresetRecord } from '../providers/llm/postProcessPrompts'
 import { createMainAppWindow } from '../windows/createMainAppWindow'
 import { createRecordingBarWindow } from '../windows/createRecordingBarWindow'
-import { createWindowManager } from '../windows/windowManager'
+import { createSelectionToolbarWindow } from '../windows/createSelectionToolbarWindow'
+import { createTtsPlayerWindow } from '../windows/createTtsPlayerWindow'
+import { createWindowManager, loadRendererWindow } from '../windows/windowManager'
 import {
   checkForUpdates as checkForAutoUpdates,
   getAutoUpdateState,
@@ -58,8 +64,11 @@ import {
 } from '../updater/autoUpdater'
 import { createMicrophonePermissionState } from './microphonePermissionState'
 import { resolveAppLanguage } from '../../shared/i18n/config'
+import type { DictionaryEntryRecord } from '../../shared/dictionary'
+import type { SelectionToolbarStatePayload, TtsSource } from '../../shared/tts'
 
 const SHOW_MAIN_WINDOW_SHORTCUT = 'CommandOrControl+Shift+Space'
+const ACTIVE_SELECTION_TOOLBAR_SHORTCUT = 'Control+T'
 const ACCESSIBILITY_PERMISSION_RECHECK_INTERVAL_MS = 30_000
 const ACCESSIBILITY_PERMISSION_PROMPT_COOLDOWN_MS = 5 * 60_000
 const HISTORY_PAGE_SIZE = 10
@@ -67,6 +76,20 @@ const ACCESSIBILITY_SETTINGS_URL =
   'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'
 const MICROPHONE_SETTINGS_URL =
   'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'
+const TEXT_TO_SPEECH_TOOLBAR_SIZE = { width: 196, height: 56 }
+const DEFAULT_TTS_STATE: TtsStatePayload = {
+  status: 'idle',
+  sessionId: null,
+  source: null,
+  text: '',
+  audioUrl: null,
+  audioExpiresAt: null,
+  segments: [],
+  voice: null,
+  model: null,
+  createdAt: null,
+  error: null
+}
 let tray: Tray | null = null
 
 const PROVIDER_LABELS: Record<ProviderKind, { name: string; missingKeyLabel: string }> = {
@@ -111,6 +134,88 @@ function bringWindowToFront(window: BrowserWindow): void {
   }
 
   window.focus()
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(Math.max(value, minimum), maximum)
+}
+
+function selectionPointToDip(point: { x: number; y: number }): { x: number; y: number } {
+  if (process.platform === 'darwin') {
+    return point
+  }
+
+  return screen.screenToDipPoint({
+    x: Math.round(point.x),
+    y: Math.round(point.y)
+  })
+}
+
+function resolveSelectionToolbarBounds(selection: ContextSelection): {
+  x: number
+  y: number
+  width: number
+  height: number
+} | null {
+  if (!selection.bounds) {
+    return null
+  }
+
+  const topLeft = selectionPointToDip({
+    x: selection.bounds.x,
+    y: selection.bounds.y
+  })
+  const bottomRight = selectionPointToDip({
+    x: selection.bounds.x + selection.bounds.width,
+    y: selection.bounds.y + selection.bounds.height
+  })
+  const centerX = (topLeft.x + bottomRight.x) / 2
+  const bottomY = Math.max(topLeft.y, bottomRight.y)
+  const display = screen.getDisplayNearestPoint({
+    x: Math.round(centerX),
+    y: Math.round(bottomY)
+  })
+  const workArea = display.workArea
+  const x = Math.round(
+    clamp(
+      centerX - TEXT_TO_SPEECH_TOOLBAR_SIZE.width / 2,
+      workArea.x + 12,
+      workArea.x + workArea.width - TEXT_TO_SPEECH_TOOLBAR_SIZE.width - 12
+    )
+  )
+  const y = Math.round(
+    clamp(
+      bottomY + 10,
+      workArea.y + 12,
+      workArea.y + workArea.height - TEXT_TO_SPEECH_TOOLBAR_SIZE.height - 12
+    )
+  )
+
+  return {
+    x,
+    y,
+    width: TEXT_TO_SPEECH_TOOLBAR_SIZE.width,
+    height: TEXT_TO_SPEECH_TOOLBAR_SIZE.height
+  }
+}
+
+function getCursorFallbackBounds(): SelectionBounds {
+  const point = screen.getCursorScreenPoint()
+  return {
+    x: point.x,
+    y: point.y,
+    width: 1,
+    height: 1
+  }
+}
+
+function summarizeContextSelection(selection: ContextSelection | null): Record<string, unknown> {
+  return {
+    hasSelection: Boolean(selection),
+    sourceApp: selection?.sourceApp ?? null,
+    textLength: selection?.text.length ?? 0,
+    hasBounds: Boolean(selection?.bounds)
+  }
 }
 
 function resolveIconAsset(): ResolvedIconAsset {
@@ -191,27 +296,27 @@ function translatePermissionLabel(
     if (snapshot.kind === 'accessibility') {
       return snapshot.granted
         ? {
-            label: '已启用辅助功能权限',
+            label: '辅助功能权限已开启',
             description: 'TIA Voice 现在可以监听全局按住说话快捷键。',
             ctaLabel: '打开辅助功能设置'
           }
         : {
             label: '需要辅助功能权限',
             description:
-              '请在系统设置中启用辅助功能权限，这样 TIA Voice 才能监听全局按住说话快捷键。',
+              '请在系统设置中开启辅助功能权限，授权后 TIA Voice 才能响应按住说话快捷键。',
             ctaLabel: '打开辅助功能设置'
           }
     }
 
     return snapshot.granted
       ? {
-          label: '已启用麦克风权限',
+          label: '麦克风权限已开启',
           description: 'TIA Voice 现在可以访问麦克风进行语音输入。',
           ctaLabel: '打开麦克风设置'
         }
       : {
           label: snapshot.status === 'not-determined' ? '麦克风权限待确认' : '需要麦克风权限',
-          description: '请在系统设置中启用麦克风权限，这样 TIA Voice 才能采集语音。',
+          description: '请在系统设置中开启麦克风权限，授权后 TIA Voice 才能接收语音输入。',
           ctaLabel: snapshot.status === 'not-determined' ? '请求麦克风权限' : '打开麦克风设置'
         }
   }
@@ -227,7 +332,7 @@ function translatePermissionLabel(
         : {
             label: '需要輔助使用權限',
             description:
-              '請在系統設定中開啟輔助使用權限，這樣 TIA Voice 才能監聽全域按住說話快捷鍵。',
+              '請在系統設定中開啟輔助使用權限，授權後 TIA Voice 才能回應全域按住說話快捷鍵。',
             ctaLabel: '打開輔助使用設定'
           }
     }
@@ -240,7 +345,7 @@ function translatePermissionLabel(
         }
       : {
           label: snapshot.status === 'not-determined' ? '麥克風權限待確認' : '需要麥克風權限',
-          description: '請在系統設定中開啟麥克風權限，這樣 TIA Voice 才能擷取語音。',
+          description: '請在系統設定中開啟麥克風權限，授權後 TIA Voice 才能接收語音輸入。',
           ctaLabel: snapshot.status === 'not-determined' ? '請求麥克風權限' : '打開麥克風設定'
         }
   }
@@ -365,6 +470,8 @@ function buildMainAppState(input: {
   languagePreference: LanguagePreference
   resolvedLanguage: AppLanguage
   themeMode: ThemeMode
+  selectionToolbarEnabled: boolean
+  dictionaryEntries: DictionaryEntryRecord[]
   postProcessPreset: import('../ipc/channels').PostProcessPresetId
   postProcessPresets: PostProcessPresetRecord[]
   providers: { asr: string; llm: string }
@@ -431,7 +538,7 @@ function buildMainAppState(input: {
       input.hotkeyReady && input.registeredHotkey
         ? buildHotkeyHint(input.registeredHotkey)
         : input.resolvedLanguage === 'zh-CN'
-          ? '请先启用系统辅助功能权限，才能使用按住说话。'
+          ? '请先开启系统辅助功能权限，才能使用按住说话。'
           : input.resolvedLanguage === 'zh-TW'
             ? '請先開啟系統輔助使用權限，才能使用按住說話。'
             : 'Enable operating-system accessibility permissions to use push-to-talk.',
@@ -474,6 +581,10 @@ function buildMainAppState(input: {
       visible: input.onboardingVisible
     },
     themeMode: input.themeMode,
+    features: {
+      selectionToolbar: input.selectionToolbarEnabled
+    },
+    dictionaryEntries: input.dictionaryEntries.map((entry) => ({ ...entry })),
     postProcessPreset: input.postProcessPreset,
     postProcessPresets: input.postProcessPresets.map((preset) => ({ ...preset })),
     voiceBackendStatus:
@@ -514,15 +625,15 @@ function buildMainAppState(input: {
                 ready: false,
                 label:
                   input.resolvedLanguage === 'zh-CN'
-                    ? '完成设置以启用语音输入'
+                    ? '完成设置即可开始语音输入'
                     : input.resolvedLanguage === 'zh-TW'
-                      ? '完成設定以啟用語音輸入'
+                      ? '完成設定即可開始語音輸入'
                       : 'Finish setup to enable voice typing',
                 detail:
                   input.resolvedLanguage === 'zh-CN'
-                    ? '跳过或完成引导后，即可启用全局语音输入工作流。'
+                    ? '跳过新手引导或完成设置后，即可开始使用全局语音输入。'
                     : input.resolvedLanguage === 'zh-TW'
-                      ? '略過或完成引導後，即可啟用全域語音輸入流程。'
+                      ? '略過新手引導或完成設定後，即可開始使用全域語音輸入。'
                       : 'Skip or finish setup to turn on the global voice typing workflow.'
               }
             : {
@@ -539,9 +650,9 @@ function buildMainAppState(input: {
                       : providerLabel.missingKeyLabel,
                 detail:
                   input.resolvedLanguage === 'zh-CN'
-                    ? `请在引导或设置中添加你的 ${providerLabel.name} API 密钥，然后开始语音输入。`
+                    ? `请在新手引导或设置中添加你的 ${providerLabel.name} API 密钥，然后开始语音输入。`
                     : input.resolvedLanguage === 'zh-TW'
-                      ? `請在引導或設定中加入你的 ${providerLabel.name} API 金鑰，然後開始語音輸入。`
+                      ? `請在新手引導或設定中加入你的 ${providerLabel.name} API 金鑰，然後開始語音輸入。`
                       : `Add your ${providerLabel.name} API key in onboarding or settings to start dictating.`
               },
     historySummary: {
@@ -591,10 +702,13 @@ export async function bootstrapApplication(): Promise<void> {
   })
 
   const preloadPath = join(__dirname, '../preload/index.js')
-  const [mainAppWindow, recordingBarWindow] = await Promise.all([
-    createMainAppWindow(preloadPath, { showOnReady: false }),
-    createRecordingBarWindow(preloadPath)
-  ])
+  const [mainAppWindow, recordingBarWindow, selectionToolbarWindow, ttsPlayerWindow] =
+    await Promise.all([
+      createMainAppWindow(preloadPath, { showOnReady: false, load: false }),
+      createRecordingBarWindow(preloadPath, { load: false }),
+      createSelectionToolbarWindow(preloadPath, { load: false }),
+      createTtsPlayerWindow(preloadPath, { load: false })
+    ])
   const microphonePermissionState = createMicrophonePermissionState({
     platform: process.platform,
     getStatus: () => systemPreferences.getMediaAccessStatus('microphone'),
@@ -612,7 +726,9 @@ export async function bootstrapApplication(): Promise<void> {
   })
   const windowManager = createWindowManager({
     mainAppWindow,
-    recordingBarWindow
+    recordingBarWindow,
+    selectionToolbarWindow,
+    ttsPlayerWindow
   })
   let isQuitting = false
   let hotkeyReady = true
@@ -988,6 +1104,8 @@ export async function bootstrapApplication(): Promise<void> {
         languagePreference: settings.languagePreference,
         resolvedLanguage,
         themeMode: settings.themeMode,
+        selectionToolbarEnabled: settings.features.selectionToolbar,
+        dictionaryEntries: settings.dictionaryEntries,
         postProcessPreset: settings.postProcessPreset,
         postProcessPresets: settings.postProcessPresets,
         providers: settingsStore.getProviderModels(selectedProvider),
@@ -1009,6 +1127,7 @@ export async function bootstrapApplication(): Promise<void> {
         history: settings.history
       })
     )
+    syncSelectionToolbar()
   }
 
   const checkMicrophonePermission = async (prompt: boolean): Promise<boolean> => {
@@ -1038,6 +1157,7 @@ export async function bootstrapApplication(): Promise<void> {
     }
   })()
   const sessionStore = createEphemeralSessionStore()
+  let latestContextSelection: ContextSelection | null = null
   const resolveDashscopeApiKey = async (): Promise<string> => {
     const apiKey = settingsStore.getDashscopeApiKey()
     if (!apiKey) {
@@ -1075,11 +1195,163 @@ export async function bootstrapApplication(): Promise<void> {
     model: () => settingsStore.getProviderModels('openai').llm,
     postProcessPreset: () => settingsStore.getSelectedPostProcessPreset()
   })
+  const cosyVoiceTtsProvider = createCosyVoiceTtsProvider({
+    apiKey: resolveDashscopeApiKey,
+    baseUrl: env.dashscopeApiBaseUrl
+  })
   const getCurrentAsrProvider = (): ReturnType<typeof createQwenAsrProvider> => {
     return getSelectedProvider() === 'openai' ? openAiAsrProvider : qwenAsrProvider
   }
   const getCurrentLlmProvider = (): ReturnType<typeof createQwenCleanupProvider> => {
     return getSelectedProvider() === 'openai' ? openAiCleanupProvider : qwenCleanupProvider
+  }
+
+  const syncSelectionToolbar = (): void => {
+    const permissions = getAppPermissionSnapshot()
+    const gates = {
+      selectionToolbarEnabled: settingsStore.isSelectionToolbarEnabled(),
+      onboardingCompleted: settingsStore.isOnboardingComplete(),
+      hasDashscopeApiKey: settingsStore.hasDashscopeApiKey(),
+      accessibilityGranted: permissions.accessibility.granted
+    }
+    const featureReady =
+      gates.selectionToolbarEnabled &&
+      gates.onboardingCompleted &&
+      gates.hasDashscopeApiKey &&
+      gates.accessibilityGranted
+
+    if (!featureReady || !latestContextSelection?.bounds) {
+      logDebug('selection-toolbar', 'Hiding selection toolbar', {
+        reason: !featureReady ? 'feature-gated' : 'missing-selection-bounds',
+        gates,
+        selection: summarizeContextSelection(latestContextSelection)
+      })
+      windowManager.hideSelectionToolbar()
+      return
+    }
+
+    const bounds = resolveSelectionToolbarBounds(latestContextSelection)
+    if (!bounds) {
+      logDebug('selection-toolbar', 'Hiding selection toolbar', {
+        reason: 'bounds-resolution-failed',
+        gates,
+        selection: summarizeContextSelection(latestContextSelection)
+      })
+      windowManager.hideSelectionToolbar()
+      return
+    }
+
+    selectionToolbarWindow.setBounds(bounds)
+    const nextState: SelectionToolbarStatePayload = {
+      visible: true,
+      text: latestContextSelection.text,
+      sourceApp: latestContextSelection.sourceApp
+    }
+    logDebug('selection-toolbar', 'Showing selection toolbar', {
+      bounds,
+      gates,
+      selection: summarizeContextSelection(latestContextSelection)
+    })
+    windowManager.showSelectionToolbar(nextState)
+  }
+
+  const captureCurrentSelection = async (): Promise<ContextSelection | null> => {
+    if (contextProvider.captureSelection) {
+      return contextProvider.captureSelection({
+        allowAnySource: true,
+        fallbackBounds: getCursorFallbackBounds()
+      })
+    }
+
+    const snapshot = await contextProvider.captureSnapshot()
+    const text = snapshot.selectedText?.trim()
+    if (!text) {
+      return null
+    }
+
+    return {
+      text,
+      sourceApp: null,
+      bounds: null,
+      capturedAt: snapshot.capturedAt
+    }
+  }
+
+  const showSelectionToolbarForCurrentSelection = async (): Promise<void> => {
+    try {
+      latestContextSelection = await captureCurrentSelection()
+      logDebug('selection-toolbar', 'Triggered active selection toolbar check', {
+        shortcut: ACTIVE_SELECTION_TOOLBAR_SHORTCUT,
+        selection: summarizeContextSelection(latestContextSelection)
+      })
+    } catch (error) {
+      latestContextSelection = null
+      logDebug('selection-toolbar', 'Failed to trigger active selection toolbar check', {
+        shortcut: ACTIVE_SELECTION_TOOLBAR_SHORTCUT,
+        error
+      })
+    }
+
+    syncSelectionToolbar()
+  }
+
+  const startTextToSpeech = async (input: { text: string; source: TtsSource }): Promise<void> => {
+    const text = input.text.trim()
+    if (!text) {
+      throw new Error('Text-to-speech requires non-empty text.')
+    }
+
+    if (!settingsStore.hasDashscopeApiKey()) {
+      throw new Error('Add a DashScope API key before using text-to-speech.')
+    }
+
+    const createdAt = Date.now()
+    const sessionId = `tts-${createdAt}`
+    windowManager.hideSelectionToolbar()
+    windowManager.setTtsState({
+      ...DEFAULT_TTS_STATE,
+      status: 'loading',
+      sessionId,
+      source: input.source,
+      text,
+      createdAt
+    })
+
+    try {
+      const result = await cosyVoiceTtsProvider.synthesize({ text })
+      windowManager.setTtsState({
+        status: 'ready',
+        sessionId,
+        source: input.source,
+        text,
+        audioUrl: result.audioUrl,
+        audioExpiresAt: result.audioExpiresAt,
+        segments: result.segments,
+        voice: result.voice,
+        model: result.model,
+        createdAt,
+        error: null
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Text-to-speech failed.'
+      logDebug('tts', 'Text-to-speech request failed', {
+        error,
+        source: input.source
+      })
+      windowManager.setTtsState({
+        ...DEFAULT_TTS_STATE,
+        status: 'error',
+        sessionId,
+        source: input.source,
+        text,
+        createdAt,
+        error: message
+      })
+    }
+  }
+
+  const stopTextToSpeech = async (): Promise<void> => {
+    windowManager.hideTtsPlayer()
   }
 
   const startDictation = async (source: 'global' | 'onboarding'): Promise<void> => {
@@ -1142,6 +1414,7 @@ export async function bootstrapApplication(): Promise<void> {
       }
     }),
     getPostProcessPreset: () => settingsStore.getSelectedPostProcessPreset(),
+    getDictionaryEntries: () => settingsStore.getDictionaryEntries(),
     historyStore: {
       appendHistory: (entry) => {
         settingsStore.appendHistory(entry)
@@ -1243,6 +1516,8 @@ export async function bootstrapApplication(): Promise<void> {
   registerMainIpc({
     getAppState: () => windowManager.getAppState(),
     getChatState: () => windowManager.getChatState(),
+    getSelectionToolbarState: () => windowManager.getSelectionToolbarState(),
+    getTtsState: () => windowManager.getTtsState(),
     getHistoryPage: (input) => {
       const page = settingsStore.getHistoryPage(input)
       return buildHistoryPage(page)
@@ -1280,12 +1555,27 @@ export async function bootstrapApplication(): Promise<void> {
     },
     startDictation,
     stopDictation,
+    startTextToSpeech,
+    stopTextToSpeech,
     setThemeMode: (themeMode) => {
       settingsStore.setThemeMode(themeMode)
       syncAppState()
     },
     setLanguage: (language) => {
       settingsStore.setLanguagePreference(language)
+      syncAppState()
+    },
+    setSelectionToolbarEnabled: (enabled) => {
+      settingsStore.setSelectionToolbarEnabled(enabled)
+      syncAppState()
+    },
+    saveDictionaryEntry: (input) => {
+      const entry = settingsStore.saveDictionaryEntry(input)
+      syncAppState()
+      return entry
+    },
+    deleteDictionaryEntry: (entryId) => {
+      settingsStore.deleteDictionaryEntry(entryId)
       syncAppState()
     },
     setPostProcessPreset: (presetId) => {
@@ -1427,6 +1717,14 @@ export async function bootstrapApplication(): Promise<void> {
     }
   })
 
+  syncAppState()
+  await Promise.all([
+    loadRendererWindow(mainAppWindow, 'main-app'),
+    loadRendererWindow(recordingBarWindow, 'recording-bar'),
+    loadRendererWindow(selectionToolbarWindow, 'selection-toolbar'),
+    loadRendererWindow(ttsPlayerWindow, 'tts-player')
+  ])
+
   mainAppWindow.on('show', syncApplicationBarVisibility)
   mainAppWindow.on('hide', syncApplicationBarVisibility)
   syncApplicationBarVisibility()
@@ -1452,6 +1750,31 @@ export async function bootstrapApplication(): Promise<void> {
 
   if (!showMainWindowHotkeyReady) {
     console.error(`[shortcut] Failed to register "${SHOW_MAIN_WINDOW_SHORTCUT}" to open the app.`)
+  }
+
+  const selectionToolbarShortcutReady =
+    process.platform === 'darwin'
+      ? globalShortcut.register(ACTIVE_SELECTION_TOOLBAR_SHORTCUT, () => {
+          void showSelectionToolbarForCurrentSelection()
+        })
+      : false
+
+  if (process.platform === 'darwin') {
+    logDebug(
+      'selection-toolbar',
+      selectionToolbarShortcutReady
+        ? 'Registered active selection toolbar shortcut'
+        : 'Failed to register active selection toolbar shortcut',
+      {
+        shortcut: ACTIVE_SELECTION_TOOLBAR_SHORTCUT
+      }
+    )
+
+    if (!selectionToolbarShortcutReady) {
+      console.error(
+        `[shortcut] Failed to register "${ACTIVE_SELECTION_TOOLBAR_SHORTCUT}" for selected text.`
+      )
+    }
   }
 
   initializeAutoUpdater({
@@ -1495,6 +1818,9 @@ export async function bootstrapApplication(): Promise<void> {
       hotkeyService.stop()
     }
     globalShortcut.unregister(SHOW_MAIN_WINDOW_SHORTCUT)
+    if (selectionToolbarShortcutReady) {
+      globalShortcut.unregister(ACTIVE_SELECTION_TOOLBAR_SHORTCUT)
+    }
     windowManager.closeAllWindows()
     tray?.destroy()
     tray = null

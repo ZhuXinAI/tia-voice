@@ -1,32 +1,24 @@
-import { BrowserWindow, screen } from 'electron'
+import { BrowserWindow } from 'electron'
 
 import { loadRendererWindow } from './windowManager'
 
-export async function createRecordingBarWindow(
+export async function createSelectionToolbarWindow(
   preloadPath: string,
   options?: { load?: boolean }
 ): Promise<BrowserWindow> {
   const shouldLoad = options?.load ?? true
-  const bounds = screen.getPrimaryDisplay().workArea
-  const width = 400
-  const height = 60
-  const x = Math.round(bounds.x + bounds.width / 2 - width / 2)
-  const y = Math.round(bounds.y + bounds.height - height - 28)
-
   const window = new BrowserWindow({
-    width,
-    height,
-    x,
-    y,
+    width: 196,
+    height: 56,
     show: false,
     frame: false,
     transparent: true,
     resizable: false,
     movable: false,
-    hasShadow: false,
+    hasShadow: true,
     fullscreenable: false,
     skipTaskbar: true,
-    focusable: false,
+    focusable: true,
     alwaysOnTop: true,
     webPreferences: {
       preload: preloadPath,
@@ -37,10 +29,9 @@ export async function createRecordingBarWindow(
   })
 
   window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  window.setIgnoreMouseEvents(true, { forward: true })
 
   if (shouldLoad) {
-    await loadRendererWindow(window, 'recording-bar')
+    await loadRendererWindow(window, 'selection-toolbar')
   }
 
   return window

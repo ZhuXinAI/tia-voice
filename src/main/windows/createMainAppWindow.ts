@@ -4,9 +4,10 @@ import { loadRendererWindow } from './windowManager'
 
 export async function createMainAppWindow(
   preloadPath: string,
-  options?: { showOnReady?: boolean }
+  options?: { showOnReady?: boolean; load?: boolean }
 ): Promise<BrowserWindow> {
   const showOnReady = options?.showOnReady ?? true
+  const shouldLoad = options?.load ?? true
   const window = new BrowserWindow({
     width: 1220,
     height: 860,
@@ -34,6 +35,9 @@ export async function createMainAppWindow(
     }
   })
 
-  await loadRendererWindow(window, 'main-app')
+  if (shouldLoad) {
+    await loadRendererWindow(window, 'main-app')
+  }
+
   return window
 }

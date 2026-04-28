@@ -9,9 +9,4 @@ export type TiaHistoryDebugEntry = PreloadHistoryDebugEntry
 export type DashscopeSetupState = MainAppState['dashscope']
 export type SettingsSection = 'general' | 'providers' | 'permissions' | 'language' | 'about'
 
-export type DictionaryPhrase = {
-  id: string
-  phrase: string
-  replacement: string
-  notes: string
-}
+export type DictionaryPhrase = MainAppState['dictionaryEntries'][number]
