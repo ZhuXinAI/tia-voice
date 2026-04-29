@@ -1,4 +1,4 @@
-export type TtsSource = 'selection-toolbar' | 'manual'
+export type TtsSource = 'manual' | 'question-answer'
 
 export type TtsTranscriptSegment = {
   text: string
@@ -18,10 +18,4 @@ export type TtsStatePayload = {
   model: string | null
   createdAt: number | null
   error: string | null
-}
-
-export type SelectionToolbarStatePayload = {
-  visible: boolean
-  text: string
-  sourceApp: string | null
 }

@@ -10,6 +10,10 @@ describe('getWindowRoleFromLocation', () => {
     expect(getWindowRoleFromLocation('?window=recording-bar')).toBe('recording-bar')
   })
 
+  it('reads the question bar role from the query string', () => {
+    expect(getWindowRoleFromLocation('?window=question-bar')).toBe('question-bar')
+  })
+
   it('reads the tts player role from the query string', () => {
     expect(getWindowRoleFromLocation('?window=tts-player')).toBe('tts-player')
   })

@@ -65,7 +65,7 @@ export const defaultMainAppState: MainAppState = {
   },
   themeMode: 'system',
   features: {
-    selectionToolbar: false
+    autoTextToSpeech: false
   },
   dictionaryEntries: DEFAULT_DICTIONARY_ENTRIES.map((entry) => ({ ...entry })),
   postProcessPreset: 'formal',
@@ -97,6 +97,9 @@ export const defaultMainAppState: MainAppState = {
     wordsSpoken: 0,
     averageWpm: null
   },
+  questionHistorySummary: {
+    totalCount: 0
+  },
   permissions: {
     hasMissing: true,
     accessibility: {
@@ -125,5 +128,6 @@ export const defaultMainAppState: MainAppState = {
     downloadProgressPercent: null,
     message: 'Automatic updates are only available in packaged builds.'
   },
-  history: []
+  history: [],
+  questionHistory: []
 }

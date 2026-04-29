@@ -8,8 +8,21 @@ export type RecordingArtifact = {
 }
 
 export type RecorderStatus = 'idle' | 'recording' | 'stopping' | 'error'
+export type RecorderState = {
+  start(): void
+  stop(): void
+  status(): RecorderStatus | 'completed'
+}
+export type MicrophoneRecorder = {
+  error: string | null
+  status: RecorderStatus
+  stream: MediaStream | null
+  cancel(): Promise<boolean>
+  start(deviceId?: string | null): Promise<boolean>
+  stop(): Promise<boolean>
+}
 
-export function createRecorderState() {
+export function createRecorderState(): RecorderState {
   let currentStatus: RecorderStatus | 'completed' = 'idle'
 
   return {
@@ -36,12 +49,13 @@ function resolveMimeType(): string {
 
 export function useMicrophoneRecorder(input: {
   onComplete: (artifact: RecordingArtifact) => Promise<void> | void
-}) {
+}): MicrophoneRecorder {
   const [status, setStatus] = useState<RecorderStatus>('idle')
   const [error, setError] = useState<string | null>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
   const recorderRef = useRef<MediaRecorder | null>(null)
   const statusRef = useRef<RecorderStatus>('idle')
+  const discardOnStopRef = useRef(false)
   const mimeType = useMemo(resolveMimeType, [])
 
   const setRecorderStatus = useCallback((nextStatus: RecorderStatus) => {
@@ -60,6 +74,18 @@ export function useMicrophoneRecorder(input: {
       return false
     }
 
+    setRecorderStatus('stopping')
+    recorder.stop()
+    return true
+  }, [setRecorderStatus])
+
+  const cancel = useCallback(async (): Promise<boolean> => {
+    const recorder = recorderRef.current
+    if (!recorder || recorder.state === 'inactive') {
+      return false
+    }
+
+    discardOnStopRef.current = true
     setRecorderStatus('stopping')
     recorder.stop()
     return true
@@ -122,6 +148,12 @@ export function useMicrophoneRecorder(input: {
 
         recorder.onstop = async () => {
           try {
+            if (discardOnStopRef.current) {
+              discardOnStopRef.current = false
+              setRecorderStatus('idle')
+              return
+            }
+
             const blob = new Blob(recordingChunks, {
               type: recorder.mimeType || mimeType || 'audio/webm'
             })
@@ -156,6 +188,7 @@ export function useMicrophoneRecorder(input: {
         setRecorderStatus('error')
         setError(startError instanceof Error ? startError.message : 'Microphone permission failed.')
         recorderRef.current = null
+        discardOnStopRef.current = false
         cleanupStream(liveStream)
         return false
       }
@@ -167,6 +200,7 @@ export function useMicrophoneRecorder(input: {
     error,
     status,
     stream,
+    cancel,
     start,
     stop
   }

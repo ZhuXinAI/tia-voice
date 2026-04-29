@@ -15,6 +15,30 @@ export type RecordingCommand =
       type: 'stop'
     }
 
+export type QuestionRecordingCommand =
+  | RecordingCommand
+  | {
+      type: 'pending'
+      stage: 'transcribing' | 'answering'
+      selectedText: string | null
+      sourceApp: string | null
+      question?: string | null
+    }
+  | {
+      type: 'answer'
+      question: string
+      answer: string
+      selectedText?: string | null
+      sourceApp?: string | null
+    }
+  | {
+      type: 'error'
+      detail: string
+    }
+  | {
+      type: 'clear'
+    }
+
 export type ChatPhase = 'idle' | 'thinking' | 'done' | 'error'
 
 export type ChatState = {

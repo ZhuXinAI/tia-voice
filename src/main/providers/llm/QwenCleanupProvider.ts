@@ -1,4 +1,6 @@
 import type { LlmProvider, LlmTransformInput } from './LlmProvider'
+import type { QuestionAnswerInput, QuestionAnswerProvider } from './QuestionAnswerProvider'
+import { buildQuestionAnswerPromptParts } from './QuestionAnswerProvider'
 import {
   buildPostProcessPromptParts,
   DEFAULT_POST_PROCESS_PRESETS,
@@ -103,6 +105,59 @@ export function createQwenCleanupProvider(input: {
 
       if (!text) {
         throw new Error('LLM transform response did not contain text')
+      }
+
+      return { text }
+    }
+  }
+}
+
+export function createQwenQuestionAnswerProvider(input: {
+  apiKey: ApiKeyResolver
+  baseUrl: string
+  model?: ModelResolver
+  fetcher?: FetchLike
+}): QuestionAnswerProvider {
+  const fetcher = input.fetcher ?? fetch
+
+  return {
+    async answer(request: QuestionAnswerInput) {
+      const apiKey = await resolveApiKey(input.apiKey)
+      const model = await resolveModel(input.model)
+      const prompt = buildQuestionAnswerPromptParts(request)
+      const response = await fetcher(`${input.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            {
+              role: 'system',
+              content: prompt.system
+            },
+            {
+              role: 'user',
+              content: prompt.prompt
+            }
+          ]
+        })
+      })
+
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '')
+        throw new Error(
+          `Q&A request failed with status ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ''}`
+        )
+      }
+
+      const json = (await response.json()) as QwenResponse
+      const text = extractText(json.choices?.[0]?.message?.content)
+
+      if (!text) {
+        throw new Error('Q&A response did not contain text')
       }
 
       return { text }

@@ -12,6 +12,7 @@ const MESSAGES: Record<AppLanguage, TranslationTable> = {
   en: {
     'app.workspace': 'Workspace',
     'nav.home': 'Home',
+    'nav.qa': 'Q&A',
     'nav.dictionary': 'Dictionary',
     'nav.presets': 'Presets',
     'nav.settings': 'Settings',
@@ -36,6 +37,11 @@ const MESSAGES: Record<AppLanguage, TranslationTable> = {
     'home.transcriptionHistory': 'Transcription history',
     'home.transcriptionHistoryDetail': ({ historyCount, totalCount }) =>
       `Showing the ${historyCount} most recent of ${totalCount} transcriptions with retry actions for failed entries.`,
+    'qa.title': 'Q&A history',
+    'qa.description': ({ historyCount, totalCount }) =>
+      `Showing the ${historyCount} most recent of ${totalCount} spoken questions.`,
+    'qa.empty': 'No Q&A history yet. Select text, hold Control+T, and ask a question.',
+    'qa.pending': 'Question is still being transcribed.',
     'common.showAll': 'Show All',
     'history.empty': 'No voice history yet. Your next cleaned transcription will appear here.',
     'history.openDetails': ({ title }) => `Open details for ${title}`,
@@ -138,11 +144,9 @@ const MESSAGES: Record<AppLanguage, TranslationTable> = {
     'settings.about': 'About',
     'settings.generalTitle': 'General',
     'settings.generalBody': 'Shortcut and input device behavior for dictation.',
-    'settings.selectionToolbar': 'Selection toolbar',
-    'settings.selectionToolbarDetail':
-      'On macOS, select text and press Control+T to show the Read Out Loud toolbar.',
-    'settings.selectionToolbarHint':
-      'Requires onboarding completed, macOS Accessibility enabled, and a saved DashScope key.',
+    'settings.autoTextToSpeech': 'Auto read answers aloud',
+    'settings.autoTextToSpeechDetail':
+      'When Control+T produces a Q&A answer, TIA Voice can automatically open the speech player for the response.',
     'settings.theme': 'Theme',
     'settings.theme.system': 'System',
     'settings.theme.systemDetail': 'Follow your operating system appearance.',
@@ -322,6 +326,7 @@ MESSAGES['zh-CN'] = {
   ...MESSAGES.en,
   'app.workspace': '工作区',
   'nav.home': '主页',
+  'nav.qa': '问答',
   'nav.dictionary': '词典',
   'nav.presets': '预设',
   'nav.settings': '设置',
@@ -345,6 +350,11 @@ MESSAGES['zh-CN'] = {
   'home.transcriptionHistory': '转写历史',
   'home.transcriptionHistoryDetail': ({ historyCount, totalCount }) =>
     `显示最近 ${historyCount} 条，共 ${totalCount} 条转写记录；失败项可直接重试。`,
+  'qa.title': '问答历史',
+  'qa.description': ({ historyCount, totalCount }) =>
+    `显示最近 ${historyCount} 条，共 ${totalCount} 条语音问答。`,
+  'qa.empty': '还没有问答记录。选中文本后按住 Control+T 提问。',
+  'qa.pending': '问题仍在转写中。',
   'history.retry': '重试',
   'history.retrying': '重试中…',
   'history.status.completed': '已完成',
@@ -420,10 +430,9 @@ MESSAGES['zh-CN'] = {
   'settings.about': '关于',
   'settings.generalTitle': '通用',
   'settings.generalBody': '快捷键和输入设备的相关设置。',
-  'settings.selectionToolbar': '划词工具栏',
-  'settings.selectionToolbarDetail': '在 macOS 上选中文本后，按 Control+T 显示朗读工具栏。',
-  'settings.selectionToolbarHint':
-    '需要先完成引导、授予 macOS 辅助功能权限，并保存 DashScope 密钥。',
+  'settings.autoTextToSpeech': '自动朗读回答',
+  'settings.autoTextToSpeechDetail':
+    '当 Control+T 生成问答回答后，TIA Voice 可以自动打开语音播放器朗读回答。',
   'settings.theme': '主题',
   'settings.theme.system': '系统',
   'settings.theme.systemDetail': '跟随操作系统外观。',
@@ -545,6 +554,7 @@ MESSAGES['zh-TW'] = {
   ...MESSAGES.en,
   'app.workspace': '工作區',
   'nav.home': '首頁',
+  'nav.qa': '問答',
   'nav.dictionary': '詞典',
   'nav.presets': '預設',
   'nav.settings': '設定',
@@ -568,6 +578,11 @@ MESSAGES['zh-TW'] = {
   'home.transcriptionHistory': '轉寫歷史',
   'home.transcriptionHistoryDetail': ({ historyCount, totalCount }) =>
     `顯示最近 ${historyCount} 筆，共 ${totalCount} 筆轉寫紀錄；失敗項目可直接重試。`,
+  'qa.title': '問答歷史',
+  'qa.description': ({ historyCount, totalCount }) =>
+    `顯示最近 ${historyCount} 筆，共 ${totalCount} 筆語音問答。`,
+  'qa.empty': '尚無問答紀錄。選取文字後按住 Control+T 提問。',
+  'qa.pending': '問題仍在轉寫中。',
   'history.retry': '重試',
   'history.retrying': '重試中…',
   'history.status.completed': '已完成',
@@ -643,10 +658,9 @@ MESSAGES['zh-TW'] = {
   'settings.about': '關於',
   'settings.generalTitle': '一般',
   'settings.generalBody': '快捷鍵與輸入裝置的相關設定。',
-  'settings.selectionToolbar': '選取工具列',
-  'settings.selectionToolbarDetail': '在 macOS 上選取文字後，按 Control+T 顯示朗讀工具列。',
-  'settings.selectionToolbarHint':
-    '需要先完成引導、開啟 macOS 輔助使用權限，並儲存 DashScope 金鑰。',
+  'settings.autoTextToSpeech': '自動朗讀回答',
+  'settings.autoTextToSpeechDetail':
+    '當 Control+T 產生問答回答後，TIA Voice 可以自動打開語音播放器朗讀回答。',
   'settings.theme': '主題',
   'settings.theme.system': '系統',
   'settings.theme.systemDetail': '跟隨作業系統外觀。',

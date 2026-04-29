@@ -18,7 +18,7 @@ import {
   resetPostProcessPreset,
   savePostProcessPreset,
   setLanguage,
-  setSelectionToolbarEnabled,
+  setAutoTextToSpeechEnabled,
   setPostProcessPreset,
   setProviderLlmModel,
   showOnboardingWindow,
@@ -47,6 +47,7 @@ import { HistoryDebugDialog } from './main-app/HistoryDebugDialog'
 import { MainAppLayout } from './main-app/MainAppLayout'
 import { OnboardingDialog } from './main-app/OnboardingDialog'
 import { PresetsRoute } from './main-app/PresetsRoute'
+import { QuestionAnswerRoute } from './main-app/QuestionAnswerRoute'
 import { SettingsDialog } from './main-app/SettingsDialog'
 import type { MainAppHistoryEntry, SettingsSection, TiaHistoryDebugEntry } from './main-app/types'
 import { useAudioInputs } from './main-app/useAudioInputs'
@@ -329,8 +330,8 @@ export default function MainAppWindow(): React.JSX.Element {
     }
   }
 
-  const handleSelectionToolbarEnabledChange = async (enabled: boolean): Promise<void> => {
-    await setSelectionToolbarEnabled(enabled)
+  const handleAutoTextToSpeechEnabledChange = async (enabled: boolean): Promise<void> => {
+    await setAutoTextToSpeechEnabled(enabled)
     await syncMainAppState()
   }
 
@@ -437,6 +438,16 @@ export default function MainAppWindow(): React.JSX.Element {
             />
 
             <Route
+              path="qa"
+              element={
+                <QuestionAnswerRoute
+                  history={state.questionHistory}
+                  totalCount={state.questionHistorySummary.totalCount}
+                />
+              }
+            />
+
+            <Route
               path="dictionary"
               element={
                 <DictionaryRoute
@@ -491,10 +502,10 @@ export default function MainAppWindow(): React.JSX.Element {
           languagePreference={state.language.preference}
           resolvedLanguage={state.language.resolved}
           themeMode={state.themeMode}
-          selectionToolbarEnabled={state.features.selectionToolbar}
+          autoTextToSpeechEnabled={state.features.autoTextToSpeech}
           onThemeModeChange={handleThemeModeChange}
           onLanguageChange={handleLanguageChange}
-          onSelectionToolbarEnabledChange={handleSelectionToolbarEnabledChange}
+          onAutoTextToSpeechEnabledChange={handleAutoTextToSpeechEnabledChange}
           onHotkeyChange={handleHotkeyChange}
           onMicrophoneChange={handleMicrophoneChange}
           onProviderChange={handleProviderChange}

@@ -2,6 +2,8 @@ import { createOpenAI } from '@ai-sdk/openai'
 import { generateText } from 'ai'
 
 import type { LlmProvider, LlmTransformInput } from './LlmProvider'
+import type { QuestionAnswerInput, QuestionAnswerProvider } from './QuestionAnswerProvider'
+import { buildQuestionAnswerPromptParts } from './QuestionAnswerProvider'
 import {
   buildPostProcessPromptParts,
   DEFAULT_POST_PROCESS_PRESETS,
@@ -62,6 +64,35 @@ export function createOpenAiCleanupProvider(input: {
 
       if (!result.text.trim()) {
         throw new Error('OpenAI transform response did not contain text')
+      }
+
+      return { text: result.text.trim() }
+    }
+  }
+}
+
+export function createOpenAiQuestionAnswerProvider(input: {
+  apiKey: ApiKeyResolver
+  model?: ModelResolver
+  fetcher?: FetchLike
+}): QuestionAnswerProvider {
+  return {
+    async answer(request: QuestionAnswerInput) {
+      const apiKey = await resolveApiKey(input.apiKey)
+      const model = await resolveModel(input.model)
+      const prompt = buildQuestionAnswerPromptParts(request)
+      const provider = createOpenAI({
+        apiKey,
+        fetch: input.fetcher
+      })
+      const result = await generateText({
+        model: provider(model),
+        system: prompt.system,
+        prompt: prompt.prompt
+      })
+
+      if (!result.text.trim()) {
+        throw new Error('OpenAI Q&A response did not contain text')
       }
 
       return { text: result.text.trim() }

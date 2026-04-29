@@ -66,7 +66,7 @@ const baseState = {
   },
   themeMode: 'system' as const,
   features: {
-    selectionToolbar: false
+    autoTextToSpeech: false
   },
   dictionaryEntries: [
     {
@@ -105,6 +105,9 @@ const baseState = {
     wordsSpoken: 0,
     averageWpm: null
   },
+  questionHistorySummary: {
+    totalCount: 0
+  },
   permissions: {
     hasMissing: true,
     accessibility: {
@@ -133,7 +136,8 @@ const baseState = {
     downloadProgressPercent: null,
     message: null
   },
-  history: []
+  history: [],
+  questionHistory: []
 }
 
 const configuredState = {
@@ -198,7 +202,7 @@ const {
   checkForUpdatesMock,
   restartToUpdateMock,
   setLanguageMock,
-  setSelectionToolbarEnabledMock,
+  setAutoTextToSpeechEnabledMock,
   setThemeModeMock,
   setPostProcessPresetMock,
   savePostProcessPresetMock,
@@ -226,7 +230,7 @@ const {
   checkForUpdatesMock: vi.fn(),
   restartToUpdateMock: vi.fn(),
   setLanguageMock: vi.fn(),
-  setSelectionToolbarEnabledMock: vi.fn(),
+  setAutoTextToSpeechEnabledMock: vi.fn(),
   setThemeModeMock: vi.fn(),
   setPostProcessPresetMock: vi.fn(),
   savePostProcessPresetMock: vi.fn(),
@@ -255,7 +259,7 @@ vi.mock('../lib/ipc', () => ({
   checkForUpdates: checkForUpdatesMock,
   restartToUpdate: restartToUpdateMock,
   setLanguage: setLanguageMock,
-  setSelectionToolbarEnabled: setSelectionToolbarEnabledMock,
+  setAutoTextToSpeechEnabled: setAutoTextToSpeechEnabledMock,
   setThemeMode: setThemeModeMock,
   setPostProcessPreset: setPostProcessPresetMock,
   savePostProcessPreset: savePostProcessPresetMock,
@@ -304,7 +308,7 @@ describe('MainAppWindow', () => {
     checkForUpdatesMock.mockReset()
     restartToUpdateMock.mockReset()
     setLanguageMock.mockReset()
-    setSelectionToolbarEnabledMock.mockReset()
+    setAutoTextToSpeechEnabledMock.mockReset()
     setThemeModeMock.mockReset()
     setPostProcessPresetMock.mockReset()
     savePostProcessPresetMock.mockReset()
@@ -359,7 +363,7 @@ describe('MainAppWindow', () => {
     checkForUpdatesMock.mockResolvedValue(baseState.autoUpdate)
     restartToUpdateMock.mockResolvedValue(undefined)
     setLanguageMock.mockResolvedValue(undefined)
-    setSelectionToolbarEnabledMock.mockResolvedValue(undefined)
+    setAutoTextToSpeechEnabledMock.mockResolvedValue(undefined)
     setThemeModeMock.mockResolvedValue(undefined)
     setPostProcessPresetMock.mockResolvedValue(undefined)
     savePostProcessPresetMock.mockResolvedValue({
@@ -542,21 +546,22 @@ describe('MainAppWindow', () => {
     })
   })
 
-  it('toggles the selection toolbar feature from settings', async () => {
+  it('toggles automatic TTS for Q&A answers from settings', async () => {
     getMainAppStateMock.mockResolvedValueOnce(baseState).mockResolvedValueOnce({
       ...baseState,
       features: {
-        selectionToolbar: true
+        ...baseState.features,
+        autoTextToSpeech: true
       }
     })
 
     render(<MainAppWindow />)
 
     fireEvent.click(await screen.findByRole('button', { name: /settings/i }))
-    fireEvent.click(await screen.findByRole('switch', { name: /selection toolbar/i }))
+    fireEvent.click(await screen.findByRole('switch', { name: /auto read answers aloud/i }))
 
     await waitFor(() => {
-      expect(setSelectionToolbarEnabledMock).toHaveBeenCalledWith(true)
+      expect(setAutoTextToSpeechEnabledMock).toHaveBeenCalledWith(true)
     })
   })
 

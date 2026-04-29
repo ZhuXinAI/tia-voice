@@ -1,5 +1,13 @@
 import { useState } from 'react'
-import { AlertTriangle, BookText, Download, Home, Settings2, Sparkles } from 'lucide-react'
+import {
+  AlertTriangle,
+  BookText,
+  Download,
+  Home,
+  MessageCircleQuestion,
+  Settings2,
+  Sparkles
+} from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 
 import { Button } from '@renderer/components/ui/button'
@@ -50,6 +58,7 @@ export function MainSidebar(props: MainSidebarProps): React.JSX.Element {
   const location = useLocation()
   const [restartPending, setRestartPending] = useState(false)
   const isHomeRoute = location.pathname === '/'
+  const isQuestionAnswerRoute = location.pathname.startsWith('/qa')
   const isDictionaryRoute = location.pathname.startsWith('/dictionary')
   const isPresetsRoute = location.pathname.startsWith('/presets')
   const activeProvider = selectedProvider === 'openai' ? openai : dashscope
@@ -116,6 +125,18 @@ export function MainSidebar(props: MainSidebarProps): React.JSX.Element {
                   <Link to="/">
                     <Home />
                     <span>{t('nav.home')}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isQuestionAnswerRoute}
+                  tooltip={t('nav.qa')}
+                >
+                  <Link to="/qa">
+                    <MessageCircleQuestion />
+                    <span>{t('nav.qa')}</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

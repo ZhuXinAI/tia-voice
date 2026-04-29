@@ -5,13 +5,20 @@ import {
   type LanguagePreference
 } from '../../shared/i18n/config'
 import type { DictionaryEntryRecord } from '../../shared/dictionary'
-import type { SelectionToolbarStatePayload, TtsStatePayload } from '../../shared/tts'
+import type { TtsStatePayload } from '../../shared/tts'
+import type { QuestionHistoryEntry } from '../config/settingsStore'
 
 export const IPC_CHANNELS = {
   recording: {
     command: 'recording:command',
     complete: 'recording:complete',
     failed: 'recording:failed'
+  },
+  questionRecording: {
+    command: 'question-recording:command',
+    complete: 'question-recording:complete',
+    failed: 'question-recording:failed',
+    cancel: 'question-recording:cancel'
   },
   debug: {
     log: 'debug:log',
@@ -20,10 +27,6 @@ export const IPC_CHANNELS = {
   chat: {
     state: 'chat:state',
     getState: 'chat:get-state'
-  },
-  selectionToolbar: {
-    state: 'selection-toolbar:state',
-    getState: 'selection-toolbar:get-state'
   },
   tts: {
     state: 'tts:state',
@@ -35,13 +38,14 @@ export const IPC_CHANNELS = {
     state: 'app:state',
     getState: 'app:get-state',
     getHistoryPage: 'app:get-history-page',
+    getQuestionHistoryPage: 'app:get-question-history-page',
     getHistoryEntryDebug: 'app:get-history-entry-debug',
     retryHistory: 'app:retry-history',
     startDictation: 'app:start-dictation',
     stopDictation: 'app:stop-dictation',
     setThemeMode: 'app:set-theme-mode',
     setLanguage: 'app:set-language',
-    setSelectionToolbarEnabled: 'app:set-selection-toolbar-enabled',
+    setAutoTextToSpeechEnabled: 'app:set-auto-text-to-speech-enabled',
     saveDictionaryEntry: 'app:save-dictionary-entry',
     deleteDictionaryEntry: 'app:delete-dictionary-entry',
     setPostProcessPreset: 'app:set-post-process-preset',
@@ -84,7 +88,12 @@ export type HistoryPagePayload = {
   totalCount: number
 }
 
-export type { SelectionToolbarStatePayload, TtsStatePayload }
+export type QuestionHistoryPagePayload = {
+  items: MainAppStatePayload['questionHistory']
+  totalCount: number
+}
+
+export type { TtsStatePayload }
 
 export type PermissionStatePayload = {
   kind: PermissionKind
@@ -143,7 +152,7 @@ export type MainAppStatePayload = {
   }
   themeMode: ThemeMode
   features: {
-    selectionToolbar: boolean
+    autoTextToSpeech: boolean
   }
   dictionaryEntries: DictionaryEntryPayload[]
   postProcessPreset: PostProcessPresetId
@@ -157,6 +166,9 @@ export type MainAppStatePayload = {
     totalCount: number
     wordsSpoken: number
     averageWpm: number | null
+  }
+  questionHistorySummary: {
+    totalCount: number
   }
   permissions: {
     hasMissing: boolean
@@ -173,6 +185,19 @@ export type MainAppStatePayload = {
     errorDetail?: string
     hasAudio: boolean
   }>
+  questionHistory: Array<
+    Pick<
+      QuestionHistoryEntry,
+      | 'id'
+      | 'createdAt'
+      | 'question'
+      | 'answer'
+      | 'selectedText'
+      | 'sourceApp'
+      | 'status'
+      | 'errorDetail'
+    >
+  >
 }
 
 export type ProviderSetupPayload = {

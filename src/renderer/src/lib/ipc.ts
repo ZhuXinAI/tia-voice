@@ -2,7 +2,7 @@ import type {
   AppLanguage,
   RecordingArtifact,
   RecordingCommand,
-  SelectionToolbarStatePayload,
+  QuestionRecordingCommand,
   TiaApi,
   TiaChatState,
   TtsStatePayload
@@ -71,7 +71,7 @@ const noopMainAppState = {
   },
   themeMode: 'system' as const,
   features: {
-    selectionToolbar: false
+    autoTextToSpeech: false
   },
   dictionaryEntries: DEFAULT_DICTIONARY_ENTRIES.map((entry) => ({ ...entry })),
   postProcessPreset: 'formal' as const,
@@ -103,6 +103,9 @@ const noopMainAppState = {
     wordsSpoken: 0,
     averageWpm: null
   },
+  questionHistorySummary: {
+    totalCount: 0
+  },
   permissions: {
     hasMissing: true,
     accessibility: {
@@ -131,19 +134,22 @@ const noopMainAppState = {
     downloadProgressPercent: null,
     message: 'Automatic updates are only available in packaged builds.'
   },
-  history: []
+  history: [],
+  questionHistory: []
 }
 
 const noopApi: TiaApi = {
   onRecordingCommand: () => () => undefined,
+  onQuestionRecordingCommand: () => () => undefined,
   submitRecordingArtifact: async () => undefined,
+  submitQuestionRecordingArtifact: async () => undefined,
+  cancelQuestionRecording: async () => undefined,
   reportRecordingFailure: async () => undefined,
+  reportQuestionRecordingFailure: async () => undefined,
   onChatState: () => () => undefined,
-  onSelectionToolbarState: () => () => undefined,
   onTtsState: () => () => undefined,
   onAppState: () => () => undefined,
   getChatState: async () => ({ phase: 'idle' }),
-  getSelectionToolbarState: async () => ({ visible: false, text: '', sourceApp: null }),
   getTtsState: async () => ({
     status: 'idle',
     sessionId: null,
@@ -159,6 +165,7 @@ const noopApi: TiaApi = {
   }),
   getMainAppState: async () => noopMainAppState,
   getHistoryPage: async () => ({ items: [], totalCount: 0 }),
+  getQuestionHistoryPage: async () => ({ items: [], totalCount: 0 }),
   getHistoryEntryDebug: async () => null,
   retryHistoryEntry: async () => undefined,
   startDictation: async () => undefined,
@@ -167,7 +174,7 @@ const noopApi: TiaApi = {
   stopTextToSpeech: async () => undefined,
   setThemeMode: async () => undefined,
   setLanguage: async () => undefined,
-  setSelectionToolbarEnabled: async () => undefined,
+  setAutoTextToSpeechEnabled: async () => undefined,
   saveDictionaryEntry: async (input) => ({
     id: input.id ?? 'dictionary-new',
     phrase: input.phrase,
@@ -222,22 +229,34 @@ export function subscribeToRecordingCommand(
   return getApi().onRecordingCommand(listener)
 }
 
+export function subscribeToQuestionRecordingCommand(
+  listener: (command: QuestionRecordingCommand) => void
+): Unsubscribe {
+  return getApi().onQuestionRecordingCommand(listener)
+}
+
 export function submitRecordingArtifact(artifact: RecordingArtifact): Promise<void> {
   return getApi().submitRecordingArtifact(artifact)
+}
+
+export function submitQuestionRecordingArtifact(artifact: RecordingArtifact): Promise<void> {
+  return getApi().submitQuestionRecordingArtifact(artifact)
+}
+
+export function cancelQuestionRecording(): Promise<void> {
+  return getApi().cancelQuestionRecording()
 }
 
 export function reportRecordingFailure(detail: string): Promise<void> {
   return getApi().reportRecordingFailure(detail)
 }
 
-export function subscribeToChatState(listener: (state: TiaChatState) => void): Unsubscribe {
-  return getApi().onChatState(listener)
+export function reportQuestionRecordingFailure(detail: string): Promise<void> {
+  return getApi().reportQuestionRecordingFailure(detail)
 }
 
-export function subscribeToSelectionToolbarState(
-  listener: (state: SelectionToolbarStatePayload) => void
-): Unsubscribe {
-  return getApi().onSelectionToolbarState(listener)
+export function subscribeToChatState(listener: (state: TiaChatState) => void): Unsubscribe {
+  return getApi().onChatState(listener)
 }
 
 export function subscribeToTtsState(listener: (state: TtsStatePayload) => void): Unsubscribe {
@@ -254,10 +273,6 @@ export function getChatState(): Promise<TiaChatState> {
   return getApi().getChatState()
 }
 
-export function getSelectionToolbarState(): Promise<SelectionToolbarStatePayload> {
-  return getApi().getSelectionToolbarState()
-}
-
 export function getTtsState(): Promise<TtsStatePayload> {
   return getApi().getTtsState()
 }
@@ -270,6 +285,12 @@ export function getHistoryPage(
   input?: Parameters<TiaApi['getHistoryPage']>[0]
 ): ReturnType<TiaApi['getHistoryPage']> {
   return getApi().getHistoryPage(input)
+}
+
+export function getQuestionHistoryPage(
+  input?: Parameters<TiaApi['getQuestionHistoryPage']>[0]
+): ReturnType<TiaApi['getQuestionHistoryPage']> {
+  return getApi().getQuestionHistoryPage(input)
 }
 
 export function getHistoryEntryDebug(
@@ -316,10 +337,10 @@ export function setLanguage(
   return getApi().setLanguage(language)
 }
 
-export function setSelectionToolbarEnabled(
-  enabled: Parameters<TiaApi['setSelectionToolbarEnabled']>[0]
-): ReturnType<TiaApi['setSelectionToolbarEnabled']> {
-  return getApi().setSelectionToolbarEnabled(enabled)
+export function setAutoTextToSpeechEnabled(
+  enabled: Parameters<TiaApi['setAutoTextToSpeechEnabled']>[0]
+): ReturnType<TiaApi['setAutoTextToSpeechEnabled']> {
+  return getApi().setAutoTextToSpeechEnabled(enabled)
 }
 
 export function saveDictionaryEntry(

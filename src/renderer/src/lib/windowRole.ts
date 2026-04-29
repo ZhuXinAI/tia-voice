@@ -1,4 +1,9 @@
-export type WindowRole = 'main-app' | 'recording-bar' | 'chat' | 'selection-toolbar' | 'tts-player'
+export type WindowRole =
+  | 'main-app'
+  | 'recording-bar'
+  | 'question-bar'
+  | 'chat'
+  | 'tts-player'
 
 export function getWindowRoleFromLocation(search = window.location.search): WindowRole {
   const params = new URLSearchParams(search)
@@ -6,8 +11,8 @@ export function getWindowRoleFromLocation(search = window.location.search): Wind
 
   if (
     role === 'recording-bar' ||
+    role === 'question-bar' ||
     role === 'chat' ||
-    role === 'selection-toolbar' ||
     role === 'tts-player' ||
     role === 'main-app'
   ) {

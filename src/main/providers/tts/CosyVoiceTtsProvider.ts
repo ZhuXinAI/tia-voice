@@ -182,7 +182,10 @@ export function createCosyVoiceTtsProvider(input: {
       })
 
       if (!response.ok) {
-        throw new Error(`TTS request failed with status ${response.status}`)
+        const detail = await response.text().catch(() => '')
+        throw new Error(
+          `TTS request failed with status ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ''}`
+        )
       }
 
       const json = (await response.json()) as CosyVoiceResponse

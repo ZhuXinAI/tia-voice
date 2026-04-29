@@ -9,11 +9,11 @@ import {
   type PostProcessPresetPayload,
   type PostProcessPresetId,
   type HistoryPagePayload,
+  type QuestionHistoryPagePayload,
   type PermissionKind,
   type PermissionStatePayload,
   type ProviderKind,
   type ProviderSetupPayload,
-  type SelectionToolbarStatePayload,
   type TtsStatePayload,
   type TriggerKey,
   type ThemeMode
@@ -26,7 +26,6 @@ export type {
   LanguagePreference,
   PostProcessPresetId,
   ProviderKind,
-  SelectionToolbarStatePayload,
   TtsStatePayload,
   ThemeMode,
   TriggerKey
@@ -50,6 +49,30 @@ export type RecordingCommand =
     }
   | {
       type: 'stop'
+    }
+
+export type QuestionRecordingCommand =
+  | RecordingCommand
+  | {
+      type: 'pending'
+      stage: 'transcribing' | 'answering'
+      selectedText: string | null
+      sourceApp: string | null
+      question?: string | null
+    }
+  | {
+      type: 'answer'
+      question: string
+      answer: string
+      selectedText?: string | null
+      sourceApp?: string | null
+    }
+  | {
+      type: 'error'
+      detail: string
+    }
+  | {
+      type: 'clear'
     }
 
 export type RecordingArtifact = {
@@ -118,7 +141,7 @@ export type MainAppState = {
   }
   themeMode: ThemeMode
   features: {
-    selectionToolbar: boolean
+    autoTextToSpeech: boolean
   }
   dictionaryEntries: DictionaryEntryPayload[]
   postProcessPreset: PostProcessPresetId
@@ -132,6 +155,9 @@ export type MainAppState = {
     totalCount: number
     wordsSpoken: number
     averageWpm: number | null
+  }
+  questionHistorySummary: {
+    totalCount: number
   }
   permissions: {
     hasMissing: boolean
@@ -148,21 +174,37 @@ export type MainAppState = {
     errorDetail?: string
     hasAudio: boolean
   }>
+  questionHistory: Array<{
+    id: string
+    createdAt: number
+    question: string
+    answer: string
+    selectedText: string | null
+    sourceApp: string | null
+    status: 'pending' | 'completed' | 'failed'
+    errorDetail?: string
+  }>
 }
 
 export type TiaApi = {
   onRecordingCommand(listener: (command: RecordingCommand) => void): () => void
+  onQuestionRecordingCommand(listener: (command: QuestionRecordingCommand) => void): () => void
   submitRecordingArtifact(artifact: RecordingArtifact): Promise<void>
+  submitQuestionRecordingArtifact(artifact: RecordingArtifact): Promise<void>
+  cancelQuestionRecording(): Promise<void>
   reportRecordingFailure(detail: string): Promise<void>
+  reportQuestionRecordingFailure(detail: string): Promise<void>
   onChatState(listener: (state: TiaChatState) => void): () => void
-  onSelectionToolbarState(listener: (state: SelectionToolbarStatePayload) => void): () => void
   onTtsState(listener: (state: TtsStatePayload) => void): () => void
   onAppState(listener: (state: MainAppState) => void): () => void
   getChatState(): Promise<TiaChatState>
-  getSelectionToolbarState(): Promise<SelectionToolbarStatePayload>
   getTtsState(): Promise<TtsStatePayload>
   getMainAppState(): Promise<MainAppState>
   getHistoryPage(input?: { offset?: number; limit?: number }): Promise<HistoryPagePayload>
+  getQuestionHistoryPage(input?: {
+    offset?: number
+    limit?: number
+  }): Promise<QuestionHistoryPagePayload>
   getHistoryEntryDebug(entryId: string): Promise<TiaHistoryDebugEntry | null>
   retryHistoryEntry(entryId: string): Promise<void>
   startDictation(source?: 'global' | 'onboarding'): Promise<void>
@@ -171,7 +213,7 @@ export type TiaApi = {
   stopTextToSpeech(): Promise<void>
   setThemeMode(themeMode: ThemeMode): Promise<void>
   setLanguage(language: LanguagePreference): Promise<void>
-  setSelectionToolbarEnabled(enabled: boolean): Promise<void>
+  setAutoTextToSpeechEnabled(enabled: boolean): Promise<void>
   saveDictionaryEntry(input: {
     id?: string | null
     phrase: string
@@ -215,10 +257,12 @@ export type TiaApi = {
 const RECORDING_COMMAND_CHANNEL = 'recording:command'
 const RECORDING_COMPLETE_CHANNEL = 'recording:complete'
 const RECORDING_FAILED_CHANNEL = 'recording:failed'
+const QUESTION_RECORDING_COMMAND_CHANNEL = IPC_CHANNELS.questionRecording.command
+const QUESTION_RECORDING_COMPLETE_CHANNEL = IPC_CHANNELS.questionRecording.complete
+const QUESTION_RECORDING_FAILED_CHANNEL = IPC_CHANNELS.questionRecording.failed
+const QUESTION_RECORDING_CANCEL_CHANNEL = IPC_CHANNELS.questionRecording.cancel
 const CHAT_STATE_CHANNEL = 'chat:state'
 const CHAT_STATE_REQUEST_CHANNEL = 'chat:get-state'
-const SELECTION_TOOLBAR_STATE_CHANNEL = IPC_CHANNELS.selectionToolbar.state
-const SELECTION_TOOLBAR_STATE_REQUEST_CHANNEL = IPC_CHANNELS.selectionToolbar.getState
 const TTS_STATE_CHANNEL = IPC_CHANNELS.tts.state
 const TTS_STATE_REQUEST_CHANNEL = IPC_CHANNELS.tts.getState
 const TTS_START_CHANNEL = IPC_CHANNELS.tts.start
@@ -226,13 +270,14 @@ const TTS_STOP_CHANNEL = IPC_CHANNELS.tts.stop
 const APP_STATE_CHANNEL = 'app:state'
 const APP_STATE_REQUEST_CHANNEL = 'app:get-state'
 const APP_GET_HISTORY_PAGE_CHANNEL = IPC_CHANNELS.app.getHistoryPage
+const APP_GET_QUESTION_HISTORY_PAGE_CHANNEL = IPC_CHANNELS.app.getQuestionHistoryPage
 const APP_GET_HISTORY_ENTRY_DEBUG_CHANNEL = IPC_CHANNELS.app.getHistoryEntryDebug
 const APP_RETRY_HISTORY_CHANNEL = 'app:retry-history'
 const APP_START_DICTATION_CHANNEL = IPC_CHANNELS.app.startDictation
 const APP_STOP_DICTATION_CHANNEL = IPC_CHANNELS.app.stopDictation
 const APP_SET_THEME_MODE_CHANNEL = IPC_CHANNELS.app.setThemeMode
 const APP_SET_LANGUAGE_CHANNEL = IPC_CHANNELS.app.setLanguage
-const APP_SET_SELECTION_TOOLBAR_ENABLED_CHANNEL = IPC_CHANNELS.app.setSelectionToolbarEnabled
+const APP_SET_AUTO_TEXT_TO_SPEECH_ENABLED_CHANNEL = IPC_CHANNELS.app.setAutoTextToSpeechEnabled
 const APP_SAVE_DICTIONARY_ENTRY_CHANNEL = IPC_CHANNELS.app.saveDictionaryEntry
 const APP_DELETE_DICTIONARY_ENTRY_CHANNEL = IPC_CHANNELS.app.deleteDictionaryEntry
 const APP_SET_POST_PROCESS_PRESET_CHANNEL = IPC_CHANNELS.app.setPostProcessPreset
@@ -271,28 +316,38 @@ const api: TiaApi = {
     ipcRenderer.on(RECORDING_COMMAND_CHANNEL, wrapped)
     return () => ipcRenderer.removeListener(RECORDING_COMMAND_CHANNEL, wrapped)
   },
+  onQuestionRecordingCommand(listener) {
+    const wrapped = (_event: Electron.IpcRendererEvent, command: QuestionRecordingCommand): void =>
+      listener(command)
+    ipcRenderer.on(QUESTION_RECORDING_COMMAND_CHANNEL, wrapped)
+    return () => ipcRenderer.removeListener(QUESTION_RECORDING_COMMAND_CHANNEL, wrapped)
+  },
   submitRecordingArtifact(artifact) {
     return ipcRenderer.invoke(RECORDING_COMPLETE_CHANNEL, {
       ...artifact,
       buffer: Array.from(artifact.buffer)
     })
   },
+  submitQuestionRecordingArtifact(artifact) {
+    return ipcRenderer.invoke(QUESTION_RECORDING_COMPLETE_CHANNEL, {
+      ...artifact,
+      buffer: Array.from(artifact.buffer)
+    })
+  },
+  cancelQuestionRecording() {
+    return ipcRenderer.invoke(QUESTION_RECORDING_CANCEL_CHANNEL)
+  },
   reportRecordingFailure(detail) {
     return ipcRenderer.invoke(RECORDING_FAILED_CHANNEL, detail)
+  },
+  reportQuestionRecordingFailure(detail) {
+    return ipcRenderer.invoke(QUESTION_RECORDING_FAILED_CHANNEL, detail)
   },
   onChatState(listener) {
     const wrapped = (_event: Electron.IpcRendererEvent, state: TiaChatState): void =>
       listener(state)
     ipcRenderer.on(CHAT_STATE_CHANNEL, wrapped)
     return () => ipcRenderer.removeListener(CHAT_STATE_CHANNEL, wrapped)
-  },
-  onSelectionToolbarState(listener) {
-    const wrapped = (
-      _event: Electron.IpcRendererEvent,
-      state: SelectionToolbarStatePayload
-    ): void => listener(state)
-    ipcRenderer.on(SELECTION_TOOLBAR_STATE_CHANNEL, wrapped)
-    return () => ipcRenderer.removeListener(SELECTION_TOOLBAR_STATE_CHANNEL, wrapped)
   },
   onTtsState(listener) {
     const wrapped = (_event: Electron.IpcRendererEvent, state: TtsStatePayload): void =>
@@ -309,9 +364,6 @@ const api: TiaApi = {
   getChatState() {
     return ipcRenderer.invoke(CHAT_STATE_REQUEST_CHANNEL)
   },
-  getSelectionToolbarState() {
-    return ipcRenderer.invoke(SELECTION_TOOLBAR_STATE_REQUEST_CHANNEL)
-  },
   getTtsState() {
     return ipcRenderer.invoke(TTS_STATE_REQUEST_CHANNEL)
   },
@@ -320,6 +372,9 @@ const api: TiaApi = {
   },
   getHistoryPage(input) {
     return ipcRenderer.invoke(APP_GET_HISTORY_PAGE_CHANNEL, input)
+  },
+  getQuestionHistoryPage(input) {
+    return ipcRenderer.invoke(APP_GET_QUESTION_HISTORY_PAGE_CHANNEL, input)
   },
   getHistoryEntryDebug(entryId) {
     return ipcRenderer.invoke(APP_GET_HISTORY_ENTRY_DEBUG_CHANNEL, entryId)
@@ -345,8 +400,8 @@ const api: TiaApi = {
   setLanguage(language) {
     return ipcRenderer.invoke(APP_SET_LANGUAGE_CHANNEL, language)
   },
-  setSelectionToolbarEnabled(enabled) {
-    return ipcRenderer.invoke(APP_SET_SELECTION_TOOLBAR_ENABLED_CHANNEL, enabled)
+  setAutoTextToSpeechEnabled(enabled) {
+    return ipcRenderer.invoke(APP_SET_AUTO_TEXT_TO_SPEECH_ENABLED_CHANNEL, enabled)
   },
   saveDictionaryEntry(input) {
     return ipcRenderer.invoke(APP_SAVE_DICTIONARY_ENTRY_CHANNEL, input)

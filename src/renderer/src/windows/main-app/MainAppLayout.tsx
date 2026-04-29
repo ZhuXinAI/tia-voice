@@ -42,6 +42,10 @@ export function MainAppLayout(props: MainAppLayoutProps): React.JSX.Element {
       return t('nav.dictionary')
     }
 
+    if (location.pathname.startsWith('/qa')) {
+      return t('nav.qa')
+    }
+
     if (location.pathname.startsWith('/presets')) {
       return t('nav.presets')
     }

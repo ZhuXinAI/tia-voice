@@ -1,29 +1,33 @@
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, screen } from 'electron'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 
-import {
-  IPC_CHANNELS,
-  type MainAppStatePayload,
-  type SelectionToolbarStatePayload,
-  type TtsStatePayload
-} from '../ipc/channels'
-import type { ChatState, RecordingCommand } from '../recording/types'
+import { IPC_CHANNELS, type MainAppStatePayload, type TtsStatePayload } from '../ipc/channels'
+import type { ChatState, QuestionRecordingCommand, RecordingCommand } from '../recording/types'
 import { DEFAULT_DICTIONARY_ENTRIES } from '../../shared/dictionary'
 
-export type WindowRole = 'main-app' | 'recording-bar' | 'chat' | 'selection-toolbar' | 'tts-player'
+export type WindowRole = 'main-app' | 'recording-bar' | 'question-bar' | 'chat' | 'tts-player'
 export type WindowManager = {
   getMainAppWindow(): BrowserWindow
   getChatState(): ChatState
-  getSelectionToolbarState(): SelectionToolbarStatePayload
   getTtsState(): TtsStatePayload
   getAppState(): MainAppStatePayload
   showRecordingBar(command: RecordingCommand): void
   stopRecordingBar(): void
   hideRecordingBar(): void
-  showSelectionToolbar(state: SelectionToolbarStatePayload): void
-  hideSelectionToolbar(): void
+  showQuestionBar(command: QuestionRecordingCommand): void
+  stopQuestionBar(): void
+  showQuestionPending(input: Extract<QuestionRecordingCommand, { type: 'pending' }>): void
+  showQuestionAnswer(input: {
+    question: string
+    answer: string
+    selectedText?: string | null
+    sourceApp?: string | null
+  }): void
+  showQuestionError(detail: string): void
+  resetQuestionBar(): void
+  hideQuestionBar(): void
   setTtsState(state: TtsStatePayload): void
   hideTtsPlayer(): void
   closeAllWindows(): void
@@ -111,6 +115,26 @@ function showOverlayWindow(window: BrowserWindow): void {
   window.showInactive()
 }
 
+const QUESTION_BAR_COMPACT_SIZE = {
+  width: 440,
+  height: 96
+}
+
+const QUESTION_BAR_EXPANDED_SIZE = {
+  width: 560,
+  height: 340
+}
+
+function setQuestionBarBounds(window: BrowserWindow, size: typeof QUESTION_BAR_COMPACT_SIZE): void {
+  const bounds = screen.getPrimaryDisplay().workArea
+  window.setBounds({
+    width: size.width,
+    height: size.height,
+    x: Math.round(bounds.x + bounds.width / 2 - size.width / 2),
+    y: Math.round(bounds.y + bounds.height - size.height - 28)
+  })
+}
+
 function closeManagedWindow(window?: BrowserWindow): void {
   if (!window || window.isDestroyed()) {
     return
@@ -136,16 +160,12 @@ function closeManagedWindow(window?: BrowserWindow): void {
 export function createWindowManager(input: {
   mainAppWindow: BrowserWindow
   recordingBarWindow: BrowserWindow
+  questionBarWindow?: BrowserWindow
   chatWindow?: BrowserWindow
-  selectionToolbarWindow?: BrowserWindow
   ttsPlayerWindow?: BrowserWindow
 }): WindowManager {
   let chatState: ChatState = { phase: 'idle' }
-  let selectionToolbarState: SelectionToolbarStatePayload = {
-    visible: false,
-    text: '',
-    sourceApp: null
-  }
+  let questionBarExpanded = false
   let ttsState: TtsStatePayload = {
     status: 'idle',
     sessionId: null,
@@ -222,7 +242,7 @@ export function createWindowManager(input: {
     },
     themeMode: 'system',
     features: {
-      selectionToolbar: false
+      autoTextToSpeech: false
     },
     dictionaryEntries: DEFAULT_DICTIONARY_ENTRIES.map((entry) => ({ ...entry })),
     postProcessPreset: 'formal',
@@ -254,6 +274,9 @@ export function createWindowManager(input: {
       wordsSpoken: 0,
       averageWpm: null
     },
+    questionHistorySummary: {
+      totalCount: 0
+    },
     permissions: {
       hasMissing: true,
       accessibility: {
@@ -282,7 +305,8 @@ export function createWindowManager(input: {
       downloadProgressPercent: null,
       message: null
     },
-    history: []
+    history: [],
+    questionHistory: []
   }
 
   return {
@@ -291,9 +315,6 @@ export function createWindowManager(input: {
     },
     getChatState(): ChatState {
       return chatState
-    },
-    getSelectionToolbarState(): SelectionToolbarStatePayload {
-      return selectionToolbarState
     },
     getTtsState(): TtsStatePayload {
       return ttsState
@@ -313,33 +334,85 @@ export function createWindowManager(input: {
         input.recordingBarWindow.hide()
       }
     },
-    showSelectionToolbar(state: SelectionToolbarStatePayload): void {
-      selectionToolbarState = state
-
-      if (!input.selectionToolbarWindow) {
+    showQuestionBar(command: QuestionRecordingCommand): void {
+      if (!input.questionBarWindow) {
         return
       }
 
-      showOverlayWindow(input.selectionToolbarWindow)
-      sendWhenReady(input.selectionToolbarWindow, IPC_CHANNELS.selectionToolbar.state, state)
-    },
-    hideSelectionToolbar(): void {
-      selectionToolbarState = {
-        visible: false,
-        text: '',
-        sourceApp: null
-      }
-
-      if (!input.selectionToolbarWindow || input.selectionToolbarWindow.isDestroyed()) {
-        return
-      }
-
-      input.selectionToolbarWindow.hide()
-      sendWhenReady(
-        input.selectionToolbarWindow,
-        IPC_CHANNELS.selectionToolbar.state,
-        selectionToolbarState
+      setQuestionBarBounds(
+        input.questionBarWindow,
+        questionBarExpanded ? QUESTION_BAR_EXPANDED_SIZE : QUESTION_BAR_COMPACT_SIZE
       )
+      showOverlayWindow(input.questionBarWindow)
+      sendWhenReady(input.questionBarWindow, IPC_CHANNELS.questionRecording.command, command)
+    },
+    stopQuestionBar(): void {
+      if (!input.questionBarWindow) {
+        return
+      }
+
+      sendWhenReady(input.questionBarWindow, IPC_CHANNELS.questionRecording.command, {
+        type: 'stop'
+      })
+    },
+    showQuestionPending(pendingInput): void {
+      if (!input.questionBarWindow) {
+        return
+      }
+
+      questionBarExpanded = true
+      setQuestionBarBounds(input.questionBarWindow, QUESTION_BAR_EXPANDED_SIZE)
+      showOverlayWindow(input.questionBarWindow)
+      sendWhenReady(input.questionBarWindow, IPC_CHANNELS.questionRecording.command, pendingInput)
+    },
+    showQuestionAnswer(answerInput): void {
+      if (!input.questionBarWindow) {
+        return
+      }
+
+      questionBarExpanded = true
+      setQuestionBarBounds(input.questionBarWindow, QUESTION_BAR_EXPANDED_SIZE)
+      showOverlayWindow(input.questionBarWindow)
+      sendWhenReady(input.questionBarWindow, IPC_CHANNELS.questionRecording.command, {
+        type: 'answer',
+        question: answerInput.question,
+        answer: answerInput.answer,
+        selectedText: answerInput.selectedText ?? null,
+        sourceApp: answerInput.sourceApp ?? null
+      })
+    },
+    showQuestionError(detail): void {
+      if (!input.questionBarWindow) {
+        return
+      }
+
+      questionBarExpanded = true
+      setQuestionBarBounds(input.questionBarWindow, QUESTION_BAR_EXPANDED_SIZE)
+      showOverlayWindow(input.questionBarWindow)
+      sendWhenReady(input.questionBarWindow, IPC_CHANNELS.questionRecording.command, {
+        type: 'error',
+        detail
+      })
+    },
+    resetQuestionBar(): void {
+      questionBarExpanded = false
+
+      if (!input.questionBarWindow || input.questionBarWindow.isDestroyed()) {
+        return
+      }
+
+      sendWhenReady(input.questionBarWindow, IPC_CHANNELS.questionRecording.command, {
+        type: 'clear'
+      })
+      setQuestionBarBounds(input.questionBarWindow, QUESTION_BAR_COMPACT_SIZE)
+      input.questionBarWindow.hide()
+    },
+    hideQuestionBar(): void {
+      if (!input.questionBarWindow || input.questionBarWindow.isDestroyed()) {
+        return
+      }
+
+      input.questionBarWindow.hide()
     },
     setTtsState(state: TtsStatePayload): void {
       ttsState = state
@@ -380,8 +453,8 @@ export function createWindowManager(input: {
     },
     closeAllWindows(): void {
       closeManagedWindow(input.ttsPlayerWindow)
-      closeManagedWindow(input.selectionToolbarWindow)
       closeManagedWindow(input.chatWindow)
+      closeManagedWindow(input.questionBarWindow)
       closeManagedWindow(input.recordingBarWindow)
       closeManagedWindow(input.mainAppWindow)
     },

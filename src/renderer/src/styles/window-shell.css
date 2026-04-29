@@ -4,7 +4,7 @@ body {
 }
 
 body[data-window-role='recording-bar'],
-body[data-window-role='selection-toolbar'],
+body[data-window-role='question-bar'],
 body[data-window-role='tts-player'] {
   background: transparent !important;
 }
@@ -276,6 +276,125 @@ body[data-window-role='tts-player'] {
   place-items: center;
 }
 
+.question-bar-window {
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 10px;
+}
+
+.question-bar-stack {
+  width: min(100%, 540px);
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+}
+
+.question-chat-panel {
+  width: 100%;
+  max-height: 234px;
+  overflow: hidden auto;
+  padding: 12px;
+  border: 1px solid rgba(248, 216, 143, 0.18);
+  border-radius: 18px;
+  background: rgba(10, 16, 24, 0.78);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(18px);
+}
+
+.question-chat-message {
+  display: grid;
+  gap: 8px;
+}
+
+.question-chat-message + .question-chat-message {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(248, 216, 143, 0.12);
+}
+
+.question-chat-message__question,
+.question-chat-message__answer,
+.question-chat-message__selection,
+.question-chat-error {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.question-chat-message__question {
+  color: rgba(248, 216, 143, 0.86);
+  font-size: 12px;
+}
+
+.question-chat-message__answer {
+  color: rgba(255, 255, 255, 0.94);
+  font-size: 13px;
+}
+
+.question-chat-message__selection {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  padding: 8px 10px;
+  border: 1px solid rgba(248, 216, 143, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+}
+
+.question-chat-message__pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(248, 216, 143, 0.88);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.question-chat-message__spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(248, 216, 143, 0.26);
+  border-top-color: #f8d88f;
+  animation: recording-spin 0.8s linear infinite;
+}
+
+.question-chat-error {
+  color: #ff9b9b;
+  font-size: 13px;
+}
+
+.question-control-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid rgba(248, 216, 143, 0.18);
+  border-radius: 999px;
+  background: rgba(10, 16, 24, 0.56);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(16px);
+}
+
+.question-control-button {
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+}
+
+.question-control-button--cancel {
+  color: rgba(255, 255, 255, 0.76);
+}
+
+.question-control-button--confirm:disabled,
+.question-control-button--cancel:disabled {
+  opacity: 0.42;
+}
+
 .recording-hud {
   display: inline-flex;
   align-items: center;
@@ -284,6 +403,11 @@ body[data-window-role='tts-player'] {
   border-radius: 999px;
   background: rgba(10, 16, 24, 0.56);
   border: 1px solid rgba(248, 216, 143, 0.22);
+}
+
+.recording-hud--question {
+  background: rgba(67, 48, 37, 0.7);
+  border-color: rgba(248, 216, 143, 0.28);
 }
 
 .waveform-canvas {

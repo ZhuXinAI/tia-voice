@@ -51,12 +51,23 @@ export type HistoryEntry = {
   }
 }
 
+export type QuestionHistoryEntry = {
+  id: string
+  createdAt: number
+  question: string
+  answer: string
+  selectedText: string | null
+  sourceApp: string | null
+  status: 'pending' | 'completed' | 'failed'
+  errorDetail?: string
+}
+
 export type OnboardingState = {
   completed: boolean
 }
 
 export type FeatureSettings = {
-  selectionToolbar: boolean
+  autoTextToSpeech: boolean
 }
 
 export type AppSettings = {
@@ -76,6 +87,7 @@ export type AppSettings = {
   dashscopeApiKey: string | null
   openaiApiKey: string | null
   history: HistoryEntry[]
+  questionHistory: QuestionHistoryEntry[]
   onboarding: OnboardingState
 }
 
@@ -94,10 +106,16 @@ export type SettingsStore = {
     items: HistoryEntry[]
     totalCount: number
   }
+  appendQuestionHistory(entry: QuestionHistoryEntry): void
+  updateQuestionHistoryEntry(entryId: string, patch: Partial<QuestionHistoryEntry>): void
+  getQuestionHistoryPage(input?: { offset?: number; limit?: number }): {
+    items: QuestionHistoryEntry[]
+    totalCount: number
+  }
   setLanguagePreference(languagePreference: LanguagePreference): void
   setThemeMode(themeMode: ThemeMode): void
-  isSelectionToolbarEnabled(): boolean
-  setSelectionToolbarEnabled(enabled: boolean): void
+  isAutoTextToSpeechEnabled(): boolean
+  setAutoTextToSpeechEnabled(enabled: boolean): void
   getDictionaryEntries(): DictionaryEntryRecord[]
   saveDictionaryEntry(input: {
     id?: string | null
@@ -170,12 +188,14 @@ type PersistedSettings = {
   dashscopeApiKey?: string | null
   openaiApiKey?: string | null
   history: HistoryEntry[]
+  questionHistory?: QuestionHistoryEntry[]
   onboarding?: Partial<OnboardingState>
 }
 
 const SETTINGS_FILE_NAME = 'settings.json'
 const AUDIO_HISTORY_DIR_NAME = 'history-audio'
 const MAX_HISTORY_ITEMS = 100
+const MAX_QUESTION_HISTORY_ITEMS = 100
 const DEFAULT_HISTORY_PAGE_SIZE = 20
 
 const PROVIDER_MODELS: Record<ProviderKind, AppSettings['providers']> = {
@@ -248,6 +268,29 @@ function normalizeHistoryEntry(entry: Partial<HistoryEntry> & { id: string }): H
             sizeBytes: entry.audio.sizeBytes
           }
         : undefined
+  }
+}
+
+function normalizeQuestionHistoryEntry(
+  entry: Partial<QuestionHistoryEntry> & { id: string }
+): QuestionHistoryEntry {
+  const status =
+    entry.status === 'pending' || entry.status === 'completed' || entry.status === 'failed'
+      ? entry.status
+      : 'completed'
+
+  return {
+    id: entry.id,
+    createdAt:
+      typeof entry.createdAt === 'number' && Number.isFinite(entry.createdAt)
+        ? entry.createdAt
+        : Date.now(),
+    question: typeof entry.question === 'string' ? entry.question : '',
+    answer: typeof entry.answer === 'string' ? entry.answer : '',
+    selectedText: normalizeString(entry.selectedText),
+    sourceApp: normalizeString(entry.sourceApp),
+    status,
+    errorDetail: typeof entry.errorDetail === 'string' ? entry.errorDetail : undefined
   }
 }
 
@@ -349,7 +392,8 @@ function normalizeOnboardingState(value: unknown): OnboardingState {
 
 function normalizeFeatureSettings(value: unknown): FeatureSettings {
   return {
-    selectionToolbar: (value as Partial<FeatureSettings> | undefined)?.selectionToolbar === true
+    autoTextToSpeech:
+      (value as Partial<FeatureSettings> | undefined)?.autoTextToSpeech === true
   }
 }
 
@@ -388,6 +432,10 @@ function trimHistoryWithCleanup(history: HistoryEntry[], audioDirPath: string): 
   return history.slice(0, MAX_HISTORY_ITEMS)
 }
 
+function trimQuestionHistory(history: QuestionHistoryEntry[]): QuestionHistoryEntry[] {
+  return history.slice(0, MAX_QUESTION_HISTORY_ITEMS)
+}
+
 export function createSettingsStore(
   defaultHotkey: TriggerKey,
   storageRoot = process.cwd()
@@ -407,7 +455,7 @@ export function createSettingsStore(
     languagePreference: 'system',
     themeMode: 'system',
     features: {
-      selectionToolbar: false
+      autoTextToSpeech: false
     },
     dictionaryEntries: DEFAULT_DICTIONARY_ENTRIES.map((entry) => ({ ...entry })),
     postProcessPreset: DEFAULT_POST_PROCESS_PRESET_ID,
@@ -416,6 +464,7 @@ export function createSettingsStore(
     dashscopeApiKey: null,
     openaiApiKey: null,
     history: [],
+    questionHistory: [],
     onboarding: {
       completed: false
     }
@@ -434,6 +483,9 @@ export function createSettingsStore(
       const provider = normalizeProvider(parsed.provider, parsed.providers)
       const history = Array.isArray(parsed.history)
         ? parsed.history.map((item) => normalizeHistoryEntry(item))
+        : []
+      const questionHistory = Array.isArray(parsed.questionHistory)
+        ? parsed.questionHistory.map((item) => normalizeQuestionHistoryEntry(item))
         : []
       const postProcessPresets = normalizePostProcessPresetCollection(parsed.postProcessPresets)
       const selectedPostProcessPreset = resolveSelectedPostProcessPreset({
@@ -464,6 +516,7 @@ export function createSettingsStore(
         dashscopeApiKey: normalizeString(parsed.dashscopeApiKey),
         openaiApiKey: normalizeString(parsed.openaiApiKey),
         history,
+        questionHistory,
         onboarding: normalizeOnboardingState(parsed.onboarding)
       }
     } catch {
@@ -487,7 +540,7 @@ export function createSettingsStore(
       languagePreference: state.languagePreference,
       themeMode: state.themeMode,
       features: {
-        selectionToolbar: state.features.selectionToolbar
+        autoTextToSpeech: state.features.autoTextToSpeech
       },
       dictionaryEntries: state.dictionaryEntries.map((entry) => ({ ...entry })),
       postProcessPreset: state.postProcessPreset,
@@ -500,6 +553,7 @@ export function createSettingsStore(
       dashscopeApiKey: state.dashscopeApiKey,
       openaiApiKey: state.openaiApiKey,
       history: state.history,
+      questionHistory: state.questionHistory,
       onboarding: {
         completed: state.onboarding.completed
       }
@@ -516,7 +570,7 @@ export function createSettingsStore(
         microphone: { ...state.microphone },
         languagePreference: state.languagePreference,
         features: {
-          selectionToolbar: state.features.selectionToolbar
+          autoTextToSpeech: state.features.autoTextToSpeech
         },
         dictionaryEntries: state.dictionaryEntries.map((entry) => ({ ...entry })),
         postProcessPreset: state.postProcessPreset,
@@ -527,6 +581,7 @@ export function createSettingsStore(
           ...item,
           audio: item.audio ? { ...item.audio } : undefined
         })),
+        questionHistory: state.questionHistory.map((item) => ({ ...item })),
         onboarding: {
           completed: state.onboarding.completed
         }
@@ -630,6 +685,40 @@ export function createSettingsStore(
         totalCount: sortedHistory.length
       }
     },
+    appendQuestionHistory(entry: QuestionHistoryEntry): void {
+      state.questionHistory.unshift(normalizeQuestionHistoryEntry(entry))
+      state.questionHistory = trimQuestionHistory(state.questionHistory)
+      persistState()
+    },
+    updateQuestionHistoryEntry(entryId: string, patch: Partial<QuestionHistoryEntry>): void {
+      const index = state.questionHistory.findIndex((item) => item.id === entryId)
+      if (index < 0) {
+        return
+      }
+
+      const previous = state.questionHistory[index]
+      state.questionHistory[index] = normalizeQuestionHistoryEntry({
+        ...previous,
+        ...patch,
+        id: previous.id
+      })
+      persistState()
+    },
+    getQuestionHistoryPage(input = {}): { items: QuestionHistoryEntry[]; totalCount: number } {
+      const offset =
+        typeof input.offset === 'number' && Number.isFinite(input.offset) && input.offset > 0
+          ? Math.floor(input.offset)
+          : 0
+      const limit =
+        typeof input.limit === 'number' && Number.isFinite(input.limit) && input.limit > 0
+          ? Math.floor(input.limit)
+          : DEFAULT_HISTORY_PAGE_SIZE
+      const sortedHistory = [...state.questionHistory].sort((a, b) => b.createdAt - a.createdAt)
+      return {
+        items: sortedHistory.slice(offset, offset + limit).map((item) => ({ ...item })),
+        totalCount: sortedHistory.length
+      }
+    },
     setThemeMode(themeMode: ThemeMode): void {
       const normalized = normalizeThemeMode(themeMode)
       if (state.themeMode === normalized) {
@@ -639,17 +728,17 @@ export function createSettingsStore(
       state.themeMode = normalized
       persistState()
     },
-    isSelectionToolbarEnabled(): boolean {
-      return state.features.selectionToolbar
+    isAutoTextToSpeechEnabled(): boolean {
+      return state.features.autoTextToSpeech
     },
-    setSelectionToolbarEnabled(enabled: boolean): void {
-      if (state.features.selectionToolbar === enabled) {
+    setAutoTextToSpeechEnabled(enabled: boolean): void {
+      if (state.features.autoTextToSpeech === enabled) {
         return
       }
 
       state.features = {
         ...state.features,
-        selectionToolbar: enabled
+        autoTextToSpeech: enabled
       }
       persistState()
     },

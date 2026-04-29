@@ -79,6 +79,7 @@ export default function TtsPlayerWindow(): React.JSX.Element {
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
+  const [playbackError, setPlaybackError] = useState<string | null>(null)
 
   useEffect(() => {
     const applyState = (nextState: TtsStatePayload): void => {
@@ -89,6 +90,7 @@ export default function TtsPlayerWindow(): React.JSX.Element {
         setCurrentTime(0)
         setDuration(0)
         setIsPlaying(false)
+        setPlaybackError(null)
       }
     }
 
@@ -108,6 +110,10 @@ export default function TtsPlayerWindow(): React.JSX.Element {
     }
     const handlePlay = (): void => setIsPlaying(true)
     const handlePause = (): void => setIsPlaying(false)
+    const handleError = (): void => {
+      setIsPlaying(false)
+      setPlaybackError('Speech audio could not be loaded. The generated URL may be expired.')
+    }
 
     element.addEventListener('timeupdate', syncCurrentTime)
     element.addEventListener('loadedmetadata', syncDuration)
@@ -115,6 +121,7 @@ export default function TtsPlayerWindow(): React.JSX.Element {
     element.addEventListener('play', handlePlay)
     element.addEventListener('pause', handlePause)
     element.addEventListener('ended', handlePause)
+    element.addEventListener('error', handleError)
 
     return () => {
       element.removeEventListener('timeupdate', syncCurrentTime)
@@ -123,6 +130,7 @@ export default function TtsPlayerWindow(): React.JSX.Element {
       element.removeEventListener('play', handlePlay)
       element.removeEventListener('pause', handlePause)
       element.removeEventListener('ended', handlePause)
+      element.removeEventListener('error', handleError)
     }
   }, [])
 
@@ -133,8 +141,10 @@ export default function TtsPlayerWindow(): React.JSX.Element {
     }
 
     element.currentTime = 0
-    void element.play().catch(() => {
+    setPlaybackError(null)
+    void element.play().catch((error) => {
       setIsPlaying(false)
+      setPlaybackError(error instanceof Error ? error.message : 'Speech audio could not play.')
     })
   }, [state.audioUrl, state.status, state.sessionId])
 
@@ -169,7 +179,7 @@ export default function TtsPlayerWindow(): React.JSX.Element {
   }
 
   return (
-    <div className="window flex items-end justify-end bg-transparent p-3">
+    <div className="window flex items-end justify-end bg-transparent p-5">
       <audio
         ref={audioRef}
         src={state.audioUrl ?? undefined}
@@ -177,7 +187,7 @@ export default function TtsPlayerWindow(): React.JSX.Element {
         className="hidden"
       />
       <section
-        className="w-[min(100vw-24px,440px)] rounded-[28px] border border-border/70 bg-background/96 p-4 shadow-[0_28px_90px_rgba(15,23,42,0.28)] backdrop-blur-2xl"
+        className="w-[min(100vw-40px,420px)] rounded-[28px] border border-border/70 bg-background/96 p-4 shadow-[0_14px_36px_rgba(0,0,0,0.18)] backdrop-blur-xl"
         style={DRAG_STYLE}
       >
         <div className="flex items-center justify-between gap-3">
@@ -211,9 +221,9 @@ export default function TtsPlayerWindow(): React.JSX.Element {
         >
           {state.status === 'loading' ? (
             <p className="text-sm leading-relaxed text-muted-foreground">Preparing speech...</p>
-          ) : state.status === 'error' ? (
+          ) : state.status === 'error' || playbackError ? (
             <p className="text-sm leading-relaxed text-destructive">
-              {state.error ?? 'TTS failed.'}
+              {state.error ?? playbackError ?? 'TTS failed.'}
             </p>
           ) : (
             <Transcription segments={displaySegments} currentTime={currentTime} onSeek={seekTo}>

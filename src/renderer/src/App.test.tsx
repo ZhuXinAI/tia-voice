@@ -16,8 +16,8 @@ describe('App', () => {
     expect(await screen.findByText(/workspace/i)).toBeInTheDocument()
   })
 
-  it('renders the selection toolbar role', () => {
-    render(<App initialWindowRole="selection-toolbar" />)
-    expect(screen.getByRole('button', { name: /read out loud/i })).toBeInTheDocument()
+  it('renders the question bar role', () => {
+    render(<App initialWindowRole="question-bar" />)
+    expect(screen.getByTestId('question-bar-window')).toBeInTheDocument()
   })
 })

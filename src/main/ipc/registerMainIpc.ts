@@ -16,23 +16,26 @@ import { getDebugLogPath, logDebug } from '../logging/debugLogger'
 export function registerMainIpc(input: {
   getAppState: () => unknown
   getChatState: () => unknown
-  getSelectionToolbarState: () => unknown
   getTtsState: () => unknown
   getHistoryPage: (input?: { offset?: number; limit?: number }) => unknown
+  getQuestionHistoryPage: (input?: { offset?: number; limit?: number }) => unknown
   getHistoryEntryDebug: (entryId: string) => Promise<unknown>
   finishRecording: (artifact: RecordingArtifact) => Promise<void>
+  finishQuestionRecording: (artifact: RecordingArtifact) => Promise<void>
+  cancelQuestionRecording: () => void
   reportRecordingFailure: (detail: string) => void
+  reportQuestionRecordingFailure: (detail: string) => void
   retryHistoryEntry: (entryId: string) => Promise<void>
   startDictation: (source: 'global' | 'onboarding') => Promise<void>
   stopDictation: (source: 'global' | 'onboarding') => Promise<void>
   startTextToSpeech: (input: {
     text: string
-    source: 'selection-toolbar' | 'manual'
+    source: 'manual' | 'question-answer'
   }) => Promise<void>
   stopTextToSpeech: () => Promise<void>
   setThemeMode: (themeMode: ThemeMode) => void
   setLanguage: (language: LanguagePreference) => void
-  setSelectionToolbarEnabled: (enabled: boolean) => void
+  setAutoTextToSpeechEnabled: (enabled: boolean) => void
   saveDictionaryEntry: (input: {
     id?: string | null
     phrase: string
@@ -72,12 +75,15 @@ export function registerMainIpc(input: {
 }): void {
   ipcMain.removeHandler(IPC_CHANNELS.app.getState)
   ipcMain.removeHandler(IPC_CHANNELS.chat.getState)
-  ipcMain.removeHandler(IPC_CHANNELS.selectionToolbar.getState)
   ipcMain.removeHandler(IPC_CHANNELS.tts.getState)
   ipcMain.removeHandler(IPC_CHANNELS.app.getHistoryPage)
+  ipcMain.removeHandler(IPC_CHANNELS.app.getQuestionHistoryPage)
   ipcMain.removeHandler(IPC_CHANNELS.app.getHistoryEntryDebug)
   ipcMain.removeHandler(IPC_CHANNELS.recording.complete)
   ipcMain.removeHandler(IPC_CHANNELS.recording.failed)
+  ipcMain.removeHandler(IPC_CHANNELS.questionRecording.complete)
+  ipcMain.removeHandler(IPC_CHANNELS.questionRecording.failed)
+  ipcMain.removeHandler(IPC_CHANNELS.questionRecording.cancel)
   ipcMain.removeHandler(IPC_CHANNELS.app.retryHistory)
   ipcMain.removeHandler(IPC_CHANNELS.app.startDictation)
   ipcMain.removeHandler(IPC_CHANNELS.app.stopDictation)
@@ -85,7 +91,7 @@ export function registerMainIpc(input: {
   ipcMain.removeHandler(IPC_CHANNELS.tts.stop)
   ipcMain.removeHandler(IPC_CHANNELS.app.setThemeMode)
   ipcMain.removeHandler(IPC_CHANNELS.app.setLanguage)
-  ipcMain.removeHandler(IPC_CHANNELS.app.setSelectionToolbarEnabled)
+  ipcMain.removeHandler(IPC_CHANNELS.app.setAutoTextToSpeechEnabled)
   ipcMain.removeHandler(IPC_CHANNELS.app.saveDictionaryEntry)
   ipcMain.removeHandler(IPC_CHANNELS.app.deleteDictionaryEntry)
   ipcMain.removeHandler(IPC_CHANNELS.app.setPostProcessPreset)
@@ -125,12 +131,26 @@ export function registerMainIpc(input: {
 
   ipcMain.handle(IPC_CHANNELS.app.getState, () => input.getAppState())
   ipcMain.handle(IPC_CHANNELS.chat.getState, () => input.getChatState())
-  ipcMain.handle(IPC_CHANNELS.selectionToolbar.getState, () => input.getSelectionToolbarState())
   ipcMain.handle(IPC_CHANNELS.tts.getState, () => input.getTtsState())
   ipcMain.handle(
     IPC_CHANNELS.app.getHistoryPage,
     (_event, pageInput: { offset?: unknown; limit?: unknown } | undefined) => {
       return input.getHistoryPage({
+        offset:
+          typeof pageInput?.offset === 'number' && Number.isFinite(pageInput.offset)
+            ? pageInput.offset
+            : undefined,
+        limit:
+          typeof pageInput?.limit === 'number' && Number.isFinite(pageInput.limit)
+            ? pageInput.limit
+            : undefined
+      })
+    }
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.app.getQuestionHistoryPage,
+    (_event, pageInput: { offset?: unknown; limit?: unknown } | undefined) => {
+      return input.getQuestionHistoryPage({
         offset:
           typeof pageInput?.offset === 'number' && Number.isFinite(pageInput.offset)
             ? pageInput.offset
@@ -159,6 +179,22 @@ export function registerMainIpc(input: {
   ipcMain.handle(IPC_CHANNELS.recording.failed, async (_event, detail: string) => {
     input.reportRecordingFailure(detail)
   })
+  ipcMain.handle(
+    IPC_CHANNELS.questionRecording.complete,
+    async (_event, artifact: RecordingArtifact) => {
+      await input.finishQuestionRecording({
+        ...artifact,
+        buffer:
+          artifact.buffer instanceof Uint8Array ? artifact.buffer : new Uint8Array(artifact.buffer)
+      })
+    }
+  )
+  ipcMain.handle(IPC_CHANNELS.questionRecording.failed, async (_event, detail: string) => {
+    input.reportQuestionRecordingFailure(detail)
+  })
+  ipcMain.handle(IPC_CHANNELS.questionRecording.cancel, async () => {
+    input.cancelQuestionRecording()
+  })
   ipcMain.handle(IPC_CHANNELS.app.retryHistory, async (_event, entryId: string) => {
     await input.retryHistoryEntry(entryId)
   })
@@ -177,7 +213,12 @@ export function registerMainIpc(input: {
 
       await input.startTextToSpeech({
         text: value.text,
-        source: value.source === 'manual' ? 'manual' : 'selection-toolbar'
+        source:
+          value.source === 'manual'
+            ? 'manual'
+            : value.source === 'question-answer'
+              ? 'question-answer'
+              : 'manual'
       })
     }
   )
@@ -201,12 +242,12 @@ export function registerMainIpc(input: {
 
     input.setLanguage(language as LanguagePreference)
   })
-  ipcMain.handle(IPC_CHANNELS.app.setSelectionToolbarEnabled, (_event, enabled: unknown) => {
+  ipcMain.handle(IPC_CHANNELS.app.setAutoTextToSpeechEnabled, (_event, enabled: unknown) => {
     if (typeof enabled !== 'boolean') {
       return
     }
 
-    input.setSelectionToolbarEnabled(enabled)
+    input.setAutoTextToSpeechEnabled(enabled)
   })
   ipcMain.handle(
     IPC_CHANNELS.app.saveDictionaryEntry,

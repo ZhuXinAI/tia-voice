@@ -8,7 +8,6 @@ import {
   Tray,
   globalShortcut,
   nativeImage,
-  screen,
   systemPreferences,
   shell,
   type NativeImage
@@ -22,8 +21,8 @@ import { createSettingsStore, type ProviderKind } from '../config/settingsStore'
 import { loadAppEnv, type TriggerKey } from '../config/env'
 import { createNoopContextProvider } from '../context/NoopContextProvider'
 import { createSelectionHookContextProvider } from '../context/SelectionHookContextProvider'
-import type { ContextSelection, SelectionBounds } from '../context/types'
-import { createGlobalHotkeyService } from '../hotkeys/globalHotkeyService'
+import type { ContextSelection } from '../context/types'
+import { createAppHotkeyService } from '../hotkeys/globalHotkeyService'
 import {
   buildHotkeyHint,
   getTriggerKeyLabel,
@@ -44,16 +43,23 @@ import type {
 } from '../ipc/channels'
 import { getDebugLogPath, logDebug } from '../logging/debugLogger'
 import { createEphemeralSessionStore } from '../orchestration/ephemeralSessionStore'
+import { createQuestionAnswerPipeline } from '../orchestration/questionAnswerPipeline'
 import { createVoicePipeline } from '../orchestration/voicePipeline'
 import { createOpenAiAsrProvider } from '../providers/asr/OpenAiAsrProvider'
 import { createQwenAsrProvider } from '../providers/asr/QwenAsrProvider'
-import { createOpenAiCleanupProvider } from '../providers/llm/OpenAiCleanupProvider'
-import { createQwenCleanupProvider } from '../providers/llm/QwenCleanupProvider'
+import {
+  createOpenAiCleanupProvider,
+  createOpenAiQuestionAnswerProvider
+} from '../providers/llm/OpenAiCleanupProvider'
+import {
+  createQwenCleanupProvider,
+  createQwenQuestionAnswerProvider
+} from '../providers/llm/QwenCleanupProvider'
 import { createCosyVoiceTtsProvider } from '../providers/tts/CosyVoiceTtsProvider'
 import type { PostProcessPresetRecord } from '../providers/llm/postProcessPrompts'
 import { createMainAppWindow } from '../windows/createMainAppWindow'
+import { createQuestionBarWindow } from '../windows/createQuestionBarWindow'
 import { createRecordingBarWindow } from '../windows/createRecordingBarWindow'
-import { createSelectionToolbarWindow } from '../windows/createSelectionToolbarWindow'
 import { createTtsPlayerWindow } from '../windows/createTtsPlayerWindow'
 import { createWindowManager, loadRendererWindow } from '../windows/windowManager'
 import {
@@ -65,10 +71,10 @@ import {
 import { createMicrophonePermissionState } from './microphonePermissionState'
 import { resolveAppLanguage } from '../../shared/i18n/config'
 import type { DictionaryEntryRecord } from '../../shared/dictionary'
-import type { SelectionToolbarStatePayload, TtsSource } from '../../shared/tts'
+import type { TtsSource } from '../../shared/tts'
 
 const SHOW_MAIN_WINDOW_SHORTCUT = 'CommandOrControl+Shift+Space'
-const ACTIVE_SELECTION_TOOLBAR_SHORTCUT = 'Control+T'
+const QUESTION_CAPTURE_SHORTCUT = 'Control+T'
 const ACCESSIBILITY_PERMISSION_RECHECK_INTERVAL_MS = 30_000
 const ACCESSIBILITY_PERMISSION_PROMPT_COOLDOWN_MS = 5 * 60_000
 const HISTORY_PAGE_SIZE = 10
@@ -76,7 +82,6 @@ const ACCESSIBILITY_SETTINGS_URL =
   'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'
 const MICROPHONE_SETTINGS_URL =
   'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'
-const TEXT_TO_SPEECH_TOOLBAR_SIZE = { width: 196, height: 56 }
 const DEFAULT_TTS_STATE: TtsStatePayload = {
   status: 'idle',
   sessionId: null,
@@ -134,79 +139,6 @@ function bringWindowToFront(window: BrowserWindow): void {
   }
 
   window.focus()
-}
-
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.min(Math.max(value, minimum), maximum)
-}
-
-function selectionPointToDip(point: { x: number; y: number }): { x: number; y: number } {
-  if (process.platform === 'darwin') {
-    return point
-  }
-
-  return screen.screenToDipPoint({
-    x: Math.round(point.x),
-    y: Math.round(point.y)
-  })
-}
-
-function resolveSelectionToolbarBounds(selection: ContextSelection): {
-  x: number
-  y: number
-  width: number
-  height: number
-} | null {
-  if (!selection.bounds) {
-    return null
-  }
-
-  const topLeft = selectionPointToDip({
-    x: selection.bounds.x,
-    y: selection.bounds.y
-  })
-  const bottomRight = selectionPointToDip({
-    x: selection.bounds.x + selection.bounds.width,
-    y: selection.bounds.y + selection.bounds.height
-  })
-  const centerX = (topLeft.x + bottomRight.x) / 2
-  const bottomY = Math.max(topLeft.y, bottomRight.y)
-  const display = screen.getDisplayNearestPoint({
-    x: Math.round(centerX),
-    y: Math.round(bottomY)
-  })
-  const workArea = display.workArea
-  const x = Math.round(
-    clamp(
-      centerX - TEXT_TO_SPEECH_TOOLBAR_SIZE.width / 2,
-      workArea.x + 12,
-      workArea.x + workArea.width - TEXT_TO_SPEECH_TOOLBAR_SIZE.width - 12
-    )
-  )
-  const y = Math.round(
-    clamp(
-      bottomY + 10,
-      workArea.y + 12,
-      workArea.y + workArea.height - TEXT_TO_SPEECH_TOOLBAR_SIZE.height - 12
-    )
-  )
-
-  return {
-    x,
-    y,
-    width: TEXT_TO_SPEECH_TOOLBAR_SIZE.width,
-    height: TEXT_TO_SPEECH_TOOLBAR_SIZE.height
-  }
-}
-
-function getCursorFallbackBounds(): SelectionBounds {
-  const point = screen.getCursorScreenPoint()
-  return {
-    x: point.x,
-    y: point.y,
-    width: 1,
-    height: 1
-  }
 }
 
 function summarizeContextSelection(selection: ContextSelection | null): Record<string, unknown> {
@@ -458,6 +390,50 @@ function buildHistoryPage(input: {
   }
 }
 
+function toQuestionHistoryListItem(input: {
+  id: string
+  createdAt: number
+  question: string
+  answer: string
+  selectedText: string | null
+  sourceApp: string | null
+  status: 'pending' | 'completed' | 'failed'
+  errorDetail?: string
+}): MainAppStatePayload['questionHistory'][number] {
+  return {
+    id: input.id,
+    createdAt: input.createdAt,
+    question: input.question,
+    answer: input.answer,
+    selectedText: input.selectedText,
+    sourceApp: input.sourceApp,
+    status: input.status,
+    errorDetail: input.errorDetail
+  }
+}
+
+function buildQuestionHistoryPage(input: {
+  items: Array<{
+    id: string
+    createdAt: number
+    question: string
+    answer: string
+    selectedText: string | null
+    sourceApp: string | null
+    status: 'pending' | 'completed' | 'failed'
+    errorDetail?: string
+  }>
+  totalCount: number
+}): {
+  items: MainAppStatePayload['questionHistory']
+  totalCount: number
+} {
+  return {
+    items: input.items.map(toQuestionHistoryListItem),
+    totalCount: input.totalCount
+  }
+}
+
 function buildMainAppState(input: {
   appInfo: AppInfoPayload
   registeredHotkey: TriggerKey | null
@@ -470,7 +446,7 @@ function buildMainAppState(input: {
   languagePreference: LanguagePreference
   resolvedLanguage: AppLanguage
   themeMode: ThemeMode
-  selectionToolbarEnabled: boolean
+  autoTextToSpeechEnabled: boolean
   dictionaryEntries: DictionaryEntryRecord[]
   postProcessPreset: import('../ipc/channels').PostProcessPresetId
   postProcessPresets: PostProcessPresetRecord[]
@@ -496,8 +472,19 @@ function buildMainAppState(input: {
     errorDetail?: string
     audio?: { fileName: string }
   }>
+  questionHistory: Array<{
+    id: string
+    createdAt: number
+    question: string
+    answer: string
+    selectedText: string | null
+    sourceApp: string | null
+    status: 'pending' | 'completed' | 'failed'
+    errorDetail?: string
+  }>
 }): MainAppStatePayload {
   const historyByTime = [...input.history].sort((a, b) => b.createdAt - a.createdAt)
+  const questionHistoryByTime = [...input.questionHistory].sort((a, b) => b.createdAt - a.createdAt)
   const wordsSpoken = historyByTime.reduce(
     (sum, item) => sum + countWords(item.cleanedText || item.transcript || ''),
     0
@@ -582,7 +569,7 @@ function buildMainAppState(input: {
     },
     themeMode: input.themeMode,
     features: {
-      selectionToolbar: input.selectionToolbarEnabled
+      autoTextToSpeech: input.autoTextToSpeechEnabled
     },
     dictionaryEntries: input.dictionaryEntries.map((entry) => ({ ...entry })),
     postProcessPreset: input.postProcessPreset,
@@ -660,13 +647,19 @@ function buildMainAppState(input: {
       wordsSpoken,
       averageWpm
     },
+    questionHistorySummary: {
+      totalCount: questionHistoryByTime.length
+    },
     permissions: {
       hasMissing: input.permissions.hasMissing,
       accessibility: buildPermissionState(input.permissions.accessibility, input.resolvedLanguage),
       microphone: buildPermissionState(input.permissions.microphone, input.resolvedLanguage)
     },
     autoUpdate: input.autoUpdate,
-    history: historyByTime.slice(0, HISTORY_PAGE_SIZE).map(toHistoryListItem)
+    history: historyByTime.slice(0, HISTORY_PAGE_SIZE).map(toHistoryListItem),
+    questionHistory: questionHistoryByTime
+      .slice(0, HISTORY_PAGE_SIZE)
+      .map(toQuestionHistoryListItem)
   }
 }
 
@@ -687,6 +680,7 @@ export async function bootstrapApplication(): Promise<void> {
   const env = loadAppEnv({ platform: process.platform, env: process.env })
 
   app.setName('TIA Voice')
+  app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
   await app.whenReady()
   logDebug('app', 'Application ready', {
     logPath: getDebugLogPath(),
@@ -702,13 +696,14 @@ export async function bootstrapApplication(): Promise<void> {
   })
 
   const preloadPath = join(__dirname, '../preload/index.js')
-  const [mainAppWindow, recordingBarWindow, selectionToolbarWindow, ttsPlayerWindow] =
-    await Promise.all([
+  const [mainAppWindow, recordingBarWindow, questionBarWindow, ttsPlayerWindow] = await Promise.all(
+    [
       createMainAppWindow(preloadPath, { showOnReady: false, load: false }),
       createRecordingBarWindow(preloadPath, { load: false }),
-      createSelectionToolbarWindow(preloadPath, { load: false }),
+      createQuestionBarWindow(preloadPath, { load: false }),
       createTtsPlayerWindow(preloadPath, { load: false })
-    ])
+    ]
+  )
   const microphonePermissionState = createMicrophonePermissionState({
     platform: process.platform,
     getStatus: () => systemPreferences.getMediaAccessStatus('microphone'),
@@ -727,7 +722,7 @@ export async function bootstrapApplication(): Promise<void> {
   const windowManager = createWindowManager({
     mainAppWindow,
     recordingBarWindow,
-    selectionToolbarWindow,
+    questionBarWindow,
     ttsPlayerWindow
   })
   let isQuitting = false
@@ -1104,7 +1099,7 @@ export async function bootstrapApplication(): Promise<void> {
         languagePreference: settings.languagePreference,
         resolvedLanguage,
         themeMode: settings.themeMode,
-        selectionToolbarEnabled: settings.features.selectionToolbar,
+        autoTextToSpeechEnabled: settings.features.autoTextToSpeech,
         dictionaryEntries: settings.dictionaryEntries,
         postProcessPreset: settings.postProcessPreset,
         postProcessPresets: settings.postProcessPresets,
@@ -1124,10 +1119,10 @@ export async function bootstrapApplication(): Promise<void> {
         onboardingVisible: onboardingDialogVisible,
         permissions: getAppPermissionSnapshot(),
         autoUpdate: getAutoUpdateState(),
-        history: settings.history
+        history: settings.history,
+        questionHistory: settings.questionHistory
       })
     )
-    syncSelectionToolbar()
   }
 
   const checkMicrophonePermission = async (prompt: boolean): Promise<boolean> => {
@@ -1157,7 +1152,6 @@ export async function bootstrapApplication(): Promise<void> {
     }
   })()
   const sessionStore = createEphemeralSessionStore()
-  let latestContextSelection: ContextSelection | null = null
   const resolveDashscopeApiKey = async (): Promise<string> => {
     const apiKey = settingsStore.getDashscopeApiKey()
     if (!apiKey) {
@@ -1195,6 +1189,15 @@ export async function bootstrapApplication(): Promise<void> {
     model: () => settingsStore.getProviderModels('openai').llm,
     postProcessPreset: () => settingsStore.getSelectedPostProcessPreset()
   })
+  const qwenQuestionProvider = createQwenQuestionAnswerProvider({
+    apiKey: resolveDashscopeApiKey,
+    baseUrl: env.dashscopeBaseUrl,
+    model: () => settingsStore.getProviderModels('dashscope').llm
+  })
+  const openAiQuestionAnswerProvider = createOpenAiQuestionAnswerProvider({
+    apiKey: resolveOpenAiApiKey,
+    model: () => settingsStore.getProviderModels('openai').llm
+  })
   const cosyVoiceTtsProvider = createCosyVoiceTtsProvider({
     apiKey: resolveDashscopeApiKey,
     baseUrl: env.dashscopeApiBaseUrl
@@ -1206,60 +1209,16 @@ export async function bootstrapApplication(): Promise<void> {
     return getSelectedProvider() === 'openai' ? openAiCleanupProvider : qwenCleanupProvider
   }
 
-  const syncSelectionToolbar = (): void => {
-    const permissions = getAppPermissionSnapshot()
-    const gates = {
-      selectionToolbarEnabled: settingsStore.isSelectionToolbarEnabled(),
-      onboardingCompleted: settingsStore.isOnboardingComplete(),
-      hasDashscopeApiKey: settingsStore.hasDashscopeApiKey(),
-      accessibilityGranted: permissions.accessibility.granted
-    }
-    const featureReady =
-      gates.selectionToolbarEnabled &&
-      gates.onboardingCompleted &&
-      gates.hasDashscopeApiKey &&
-      gates.accessibilityGranted
-
-    if (!featureReady || !latestContextSelection?.bounds) {
-      logDebug('selection-toolbar', 'Hiding selection toolbar', {
-        reason: !featureReady ? 'feature-gated' : 'missing-selection-bounds',
-        gates,
-        selection: summarizeContextSelection(latestContextSelection)
-      })
-      windowManager.hideSelectionToolbar()
-      return
-    }
-
-    const bounds = resolveSelectionToolbarBounds(latestContextSelection)
-    if (!bounds) {
-      logDebug('selection-toolbar', 'Hiding selection toolbar', {
-        reason: 'bounds-resolution-failed',
-        gates,
-        selection: summarizeContextSelection(latestContextSelection)
-      })
-      windowManager.hideSelectionToolbar()
-      return
-    }
-
-    selectionToolbarWindow.setBounds(bounds)
-    const nextState: SelectionToolbarStatePayload = {
-      visible: true,
-      text: latestContextSelection.text,
-      sourceApp: latestContextSelection.sourceApp
-    }
-    logDebug('selection-toolbar', 'Showing selection toolbar', {
-      bounds,
-      gates,
-      selection: summarizeContextSelection(latestContextSelection)
-    })
-    windowManager.showSelectionToolbar(nextState)
+  const getCurrentQuestionAnswerProvider = ():
+    | ReturnType<typeof createQwenQuestionAnswerProvider>
+    | ReturnType<typeof createOpenAiQuestionAnswerProvider> => {
+    return getSelectedProvider() === 'openai' ? openAiQuestionAnswerProvider : qwenQuestionProvider
   }
 
-  const captureCurrentSelection = async (): Promise<ContextSelection | null> => {
+  const captureQuestionContext = async (): Promise<ContextSelection | null> => {
     if (contextProvider.captureSelection) {
       return contextProvider.captureSelection({
-        allowAnySource: true,
-        fallbackBounds: getCursorFallbackBounds()
+        allowAnySource: true
       })
     }
 
@@ -1277,24 +1236,6 @@ export async function bootstrapApplication(): Promise<void> {
     }
   }
 
-  const showSelectionToolbarForCurrentSelection = async (): Promise<void> => {
-    try {
-      latestContextSelection = await captureCurrentSelection()
-      logDebug('selection-toolbar', 'Triggered active selection toolbar check', {
-        shortcut: ACTIVE_SELECTION_TOOLBAR_SHORTCUT,
-        selection: summarizeContextSelection(latestContextSelection)
-      })
-    } catch (error) {
-      latestContextSelection = null
-      logDebug('selection-toolbar', 'Failed to trigger active selection toolbar check', {
-        shortcut: ACTIVE_SELECTION_TOOLBAR_SHORTCUT,
-        error
-      })
-    }
-
-    syncSelectionToolbar()
-  }
-
   const startTextToSpeech = async (input: { text: string; source: TtsSource }): Promise<void> => {
     const text = input.text.trim()
     if (!text) {
@@ -1307,7 +1248,6 @@ export async function bootstrapApplication(): Promise<void> {
 
     const createdAt = Date.now()
     const sessionId = `tts-${createdAt}`
-    windowManager.hideSelectionToolbar()
     windowManager.setTtsState({
       ...DEFAULT_TTS_STATE,
       status: 'loading',
@@ -1347,12 +1287,30 @@ export async function bootstrapApplication(): Promise<void> {
         createdAt,
         error: message
       })
+      throw error instanceof Error ? error : new Error(message)
     }
   }
 
   const stopTextToSpeech = async (): Promise<void> => {
     windowManager.hideTtsPlayer()
   }
+
+  type DictationCapturePhase = 'idle' | 'starting' | 'recording' | 'processing'
+  type QuestionCapturePhase = 'idle' | 'starting' | 'recording' | 'processing' | 'answer' | 'error'
+  type QuestionCaptureSource = 'uiohook' | 'global-shortcut'
+  let dictationCapturePhase: DictationCapturePhase = 'idle'
+  let dictationCaptureStopRequested = false
+  let questionCapturePhase: QuestionCapturePhase = 'idle'
+  let questionCaptureStopRequested = false
+  let activeQuestionContext: { selectedText: string | null; sourceApp: string | null } | null = null
+  let lastQuestionShortcutAt = 0
+
+  const isQuestionCaptureBusy = (): boolean =>
+    questionCapturePhase === 'starting' ||
+    questionCapturePhase === 'recording' ||
+    questionCapturePhase === 'processing'
+
+  const isDictationCaptureBusy = (): boolean => dictationCapturePhase !== 'idle'
 
   const startDictation = async (source: 'global' | 'onboarding'): Promise<void> => {
     if (source === 'global' && !shouldEnableGlobalFeatures()) {
@@ -1371,8 +1329,42 @@ export async function bootstrapApplication(): Promise<void> {
       return
     }
 
-    const didBeginCapture = await voicePipeline.beginCapture()
+    if (isQuestionCaptureBusy()) {
+      logDebug('hotkey', 'Ignored dictation trigger while question capture is active', {
+        source,
+        questionCapturePhase
+      })
+      return
+    }
+
+    if (isDictationCaptureBusy()) {
+      logDebug('hotkey', 'Ignored dictation trigger while dictation is active', {
+        source,
+        dictationCapturePhase
+      })
+      return
+    }
+
+    dictationCapturePhase = 'starting'
+    dictationCaptureStopRequested = false
+
+    let didBeginCapture = false
+    try {
+      didBeginCapture = await voicePipeline.beginCapture()
+    } catch (error) {
+      dictationCapturePhase = 'idle'
+      throw error
+    }
+
     if (!didBeginCapture) {
+      dictationCapturePhase = 'idle'
+      return
+    }
+
+    if (dictationCaptureStopRequested) {
+      dictationCaptureStopRequested = false
+      dictationCapturePhase = 'idle'
+      voicePipeline.cancelCapture()
       return
     }
 
@@ -1381,16 +1373,158 @@ export async function bootstrapApplication(): Promise<void> {
       startedAt: Date.now(),
       deviceId: settingsStore.getMicrophone().deviceId
     })
+    dictationCapturePhase = 'recording'
   }
 
   const stopDictation = async (source: 'global' | 'onboarding'): Promise<void> => {
     void source
 
-    if (!recordingBarWindow.isVisible()) {
+    if (dictationCapturePhase === 'starting') {
+      dictationCaptureStopRequested = true
       return
     }
 
+    if (dictationCapturePhase !== 'recording' || !recordingBarWindow.isVisible()) {
+      return
+    }
+
+    dictationCapturePhase = 'processing'
     windowManager.stopRecordingBar()
+  }
+
+  const cancelQuestionCapture = (source: 'renderer' | 'internal' = 'renderer'): void => {
+    questionCapturePhase = 'idle'
+    questionCaptureStopRequested = false
+    activeQuestionContext = null
+    questionAnswerPipeline.cancelCapture()
+    windowManager.resetQuestionBar()
+    logDebug('question-answer', 'Canceled question capture', { source })
+  }
+
+  const startQuestionCapture = async (source: QuestionCaptureSource = 'uiohook'): Promise<void> => {
+    if (questionCapturePhase === 'starting' || questionCapturePhase === 'recording') {
+      logDebug('question-answer', 'Ignored question trigger while capture is already active', {
+        source,
+        questionCapturePhase
+      })
+      return
+    }
+
+    if (questionCapturePhase === 'processing') {
+      logDebug('question-answer', 'Ignored question trigger while response is processing', {
+        source
+      })
+      return
+    }
+
+    if (isDictationCaptureBusy()) {
+      logDebug('question-answer', 'Ignored question trigger while dictation is active', {
+        source,
+        dictationCapturePhase
+      })
+      return
+    }
+
+    if (!shouldEnableGlobalFeatures()) {
+      logDebug('question-answer', 'Ignored question trigger before setup completed', {
+        source,
+        onboardingCompleted: settingsStore.isOnboardingComplete(),
+        selectedProvider: getSelectedProvider(),
+        providerConfigured: hasActiveProviderKey()
+      })
+      return
+    }
+
+    questionCapturePhase = 'starting'
+    questionCaptureStopRequested = false
+
+    let selection: ContextSelection | null = null
+    try {
+      selection = await captureQuestionContext()
+    } catch (error) {
+      logDebug('question-answer', 'Failed to capture selected text for question', { error })
+    }
+
+    logDebug('question-answer', 'Starting question capture', {
+      shortcut: QUESTION_CAPTURE_SHORTCUT,
+      source,
+      selection: summarizeContextSelection(selection)
+    })
+
+    const questionContext = {
+      selectedText: selection?.text ?? null,
+      sourceApp: selection?.sourceApp ?? null
+    }
+    const didBeginCapture = await questionAnswerPipeline.beginCapture(questionContext)
+    if (!didBeginCapture) {
+      questionCapturePhase = 'idle'
+      activeQuestionContext = null
+      return
+    }
+    activeQuestionContext = questionContext
+
+    if (questionCaptureStopRequested) {
+      cancelQuestionCapture('internal')
+      questionCaptureStopRequested = false
+      return
+    }
+
+    windowManager.showQuestionBar({
+      type: 'start',
+      startedAt: Date.now(),
+      deviceId: settingsStore.getMicrophone().deviceId
+    })
+
+    questionCapturePhase = 'recording'
+
+    if (questionCaptureStopRequested) {
+      questionCaptureStopRequested = false
+      await stopQuestionCapture()
+    }
+  }
+
+  const stopQuestionCapture = async (): Promise<void> => {
+    if (questionCapturePhase === 'starting') {
+      questionCaptureStopRequested = true
+      return
+    }
+
+    if (questionCapturePhase !== 'recording' || !questionBarWindow.isVisible()) {
+      return
+    }
+
+    questionCapturePhase = 'processing'
+    windowManager.showQuestionPending({
+      type: 'pending',
+      stage: 'transcribing',
+      selectedText: activeQuestionContext?.selectedText ?? null,
+      sourceApp: activeQuestionContext?.sourceApp ?? null,
+      question: null
+    })
+    windowManager.stopQuestionBar()
+  }
+
+  const toggleQuestionCapture = async (source: QuestionCaptureSource): Promise<void> => {
+    const now = Date.now()
+    if (now - lastQuestionShortcutAt < 250) {
+      logDebug('question-answer', 'Ignored duplicate question shortcut event', {
+        source,
+        questionCapturePhase
+      })
+      return
+    }
+    lastQuestionShortcutAt = now
+
+    if (questionCapturePhase === 'starting' || questionCapturePhase === 'recording') {
+      await stopQuestionCapture()
+      return
+    }
+
+    if (questionCapturePhase === 'processing') {
+      return
+    }
+
+    await startQuestionCapture(source)
   }
 
   const voicePipeline = createVoicePipeline({
@@ -1447,18 +1581,89 @@ export async function bootstrapApplication(): Promise<void> {
     }
   })
 
+  const questionAnswerPipeline = createQuestionAnswerPipeline({
+    asrProvider: {
+      transcribe: (artifact) => getCurrentAsrProvider().transcribe(artifact)
+    },
+    questionAnswerProvider: {
+      answer: (request) => getCurrentQuestionAnswerProvider().answer(request)
+    },
+    getDictionaryEntries: () => settingsStore.getDictionaryEntries(),
+    historyStore: {
+      appendQuestionHistory: (entry) => {
+        settingsStore.appendQuestionHistory(entry)
+        syncAppState()
+      },
+      updateQuestionHistoryEntry: (entryId, patch) => {
+        settingsStore.updateQuestionHistoryEntry(entryId, patch)
+        syncAppState()
+      }
+    },
+    hideQuestionBar: () => {
+      questionCapturePhase = 'idle'
+      activeQuestionContext = null
+      windowManager.resetQuestionBar()
+    },
+    showQuestionPending: (pendingInput) => {
+      questionCapturePhase = 'processing'
+      windowManager.showQuestionPending({
+        type: 'pending',
+        ...pendingInput
+      })
+    },
+    showQuestionAnswer: (answerInput) => {
+      questionCapturePhase = 'answer'
+      activeQuestionContext = null
+      windowManager.showQuestionAnswer(answerInput)
+    },
+    showQuestionError: (detail) => {
+      questionCapturePhase = 'error'
+      activeQuestionContext = null
+      windowManager.showQuestionError(detail)
+    },
+    prepareBeforeTranscribe: async () => {
+      await getCurrentProviderKeyResolver()()
+    },
+    onReadAloudRequested: async (text) => {
+      await startTextToSpeech({ text, source: 'question-answer' })
+    },
+    onAnswerCompleted: async (answer) => {
+      if (!settingsStore.isAutoTextToSpeechEnabled()) {
+        return
+      }
+
+      try {
+        await startTextToSpeech({ text: answer, source: 'question-answer' })
+      } catch (error) {
+        logDebug('question-answer', 'Auto text-to-speech failed after answer completion', {
+          error
+        })
+      }
+    }
+  })
+
   logDebug('hotkey', 'Resolved dictation trigger key', {
     triggerKey: activeTriggerKey,
     label: getTriggerKeyLabel(activeTriggerKey)
   })
-  const createHotkeyService = (
-    triggerKey: TriggerKey
-  ): ReturnType<typeof createGlobalHotkeyService> =>
-    createGlobalHotkeyService({
+  const createHotkeyService = (triggerKey: TriggerKey): ReturnType<typeof createAppHotkeyService> =>
+    createAppHotkeyService({
       triggerKey,
       hook: uIOhook,
-      onStart: async () => startDictation('global'),
-      onStop: async () => stopDictation('global')
+      onDictationStart: async () => startDictation('global'),
+      onDictationStop: async () => stopDictation('global'),
+      onQuestionStart: async () => toggleQuestionCapture('uiohook'),
+      onQuestionStop: async () => undefined,
+      onQuestionKeyEvent: (event) => {
+        logDebug('hotkey', 'Observed question hotkey key event', {
+          shortcut: QUESTION_CAPTURE_SHORTCUT,
+          phase: event.phase,
+          keycode: event.keycode,
+          ctrlKey: event.ctrlKey,
+          rawCtrlKey: event.rawCtrlKey,
+          trackedCtrlKey: event.trackedCtrlKey
+        })
+      }
     })
   let hotkeyService = createHotkeyService(activeTriggerKey)
   let hotkeyServiceStarted = false
@@ -1516,11 +1721,14 @@ export async function bootstrapApplication(): Promise<void> {
   registerMainIpc({
     getAppState: () => windowManager.getAppState(),
     getChatState: () => windowManager.getChatState(),
-    getSelectionToolbarState: () => windowManager.getSelectionToolbarState(),
     getTtsState: () => windowManager.getTtsState(),
     getHistoryPage: (input) => {
       const page = settingsStore.getHistoryPage(input)
       return buildHistoryPage(page)
+    },
+    getQuestionHistoryPage: (input) => {
+      const page = settingsStore.getQuestionHistoryPage(input)
+      return buildQuestionHistoryPage(page)
     },
     getHistoryEntryDebug: async (entryId) => {
       const entry = settingsStore.getHistoryEntry(entryId)
@@ -1548,7 +1756,22 @@ export async function bootstrapApplication(): Promise<void> {
           : undefined
       }
     },
-    finishRecording: (artifact) => voicePipeline.finishRecording(artifact),
+    finishRecording: async (artifact) => {
+      dictationCapturePhase = 'processing'
+      try {
+        await voicePipeline.finishRecording(artifact)
+      } finally {
+        dictationCapturePhase = 'idle'
+        dictationCaptureStopRequested = false
+      }
+    },
+    finishQuestionRecording: async (artifact) => {
+      questionCapturePhase = 'processing'
+      await questionAnswerPipeline.finishRecording(artifact)
+    },
+    cancelQuestionRecording: () => {
+      cancelQuestionCapture('renderer')
+    },
     retryHistoryEntry: async (entryId) => {
       await voicePipeline.retryHistoryEntry(entryId)
       syncAppState()
@@ -1565,8 +1788,8 @@ export async function bootstrapApplication(): Promise<void> {
       settingsStore.setLanguagePreference(language)
       syncAppState()
     },
-    setSelectionToolbarEnabled: (enabled) => {
-      settingsStore.setSelectionToolbarEnabled(enabled)
+    setAutoTextToSpeechEnabled: (enabled) => {
+      settingsStore.setAutoTextToSpeechEnabled(enabled)
       syncAppState()
     },
     saveDictionaryEntry: (input) => {
@@ -1706,6 +1929,8 @@ export async function bootstrapApplication(): Promise<void> {
       bringMainWindowToFront()
     },
     reportRecordingFailure: (detail) => {
+      dictationCapturePhase = 'idle'
+      dictationCaptureStopRequested = false
       voicePipeline.cancelCapture()
       windowManager.hideRecordingBar()
       windowManager.setChatState({
@@ -1714,6 +1939,18 @@ export async function bootstrapApplication(): Promise<void> {
       })
       console.error('[voice] Recording capture failed before pipeline processing.', detail)
       logDebug('voice-pipeline', 'Recording capture failed before pipeline processing', { detail })
+    },
+    reportQuestionRecordingFailure: (detail) => {
+      questionCapturePhase = 'idle'
+      questionCaptureStopRequested = false
+      activeQuestionContext = null
+      questionAnswerPipeline.cancelCapture()
+      windowManager.resetQuestionBar()
+      console.error(
+        '[question-answer] Recording capture failed before pipeline processing.',
+        detail
+      )
+      logDebug('question-answer', 'Recording capture failed before pipeline processing', { detail })
     }
   })
 
@@ -1721,7 +1958,7 @@ export async function bootstrapApplication(): Promise<void> {
   await Promise.all([
     loadRendererWindow(mainAppWindow, 'main-app'),
     loadRendererWindow(recordingBarWindow, 'recording-bar'),
-    loadRendererWindow(selectionToolbarWindow, 'selection-toolbar'),
+    loadRendererWindow(questionBarWindow, 'question-bar'),
     loadRendererWindow(ttsPlayerWindow, 'tts-player')
   ])
 
@@ -1752,29 +1989,18 @@ export async function bootstrapApplication(): Promise<void> {
     console.error(`[shortcut] Failed to register "${SHOW_MAIN_WINDOW_SHORTCUT}" to open the app.`)
   }
 
-  const selectionToolbarShortcutReady =
-    process.platform === 'darwin'
-      ? globalShortcut.register(ACTIVE_SELECTION_TOOLBAR_SHORTCUT, () => {
-          void showSelectionToolbarForCurrentSelection()
-        })
-      : false
+  const questionCaptureShortcutReady = globalShortcut.register(QUESTION_CAPTURE_SHORTCUT, () => {
+    logDebug('hotkey', 'Question capture global shortcut fired', {
+      shortcut: QUESTION_CAPTURE_SHORTCUT
+    })
+    void toggleQuestionCapture('global-shortcut')
+  })
 
-  if (process.platform === 'darwin') {
-    logDebug(
-      'selection-toolbar',
-      selectionToolbarShortcutReady
-        ? 'Registered active selection toolbar shortcut'
-        : 'Failed to register active selection toolbar shortcut',
-      {
-        shortcut: ACTIVE_SELECTION_TOOLBAR_SHORTCUT
-      }
-    )
-
-    if (!selectionToolbarShortcutReady) {
-      console.error(
-        `[shortcut] Failed to register "${ACTIVE_SELECTION_TOOLBAR_SHORTCUT}" for selected text.`
-      )
-    }
+  if (!questionCaptureShortcutReady) {
+    console.error(`[shortcut] Failed to register "${QUESTION_CAPTURE_SHORTCUT}" for Q&A capture.`)
+    logDebug('hotkey', 'Failed to register question capture global shortcut', {
+      shortcut: QUESTION_CAPTURE_SHORTCUT
+    })
   }
 
   initializeAutoUpdater({
@@ -1817,10 +2043,8 @@ export async function bootstrapApplication(): Promise<void> {
     if (hotkeyServiceStarted) {
       hotkeyService.stop()
     }
+    globalShortcut.unregister(QUESTION_CAPTURE_SHORTCUT)
     globalShortcut.unregister(SHOW_MAIN_WINDOW_SHORTCUT)
-    if (selectionToolbarShortcutReady) {
-      globalShortcut.unregister(ACTIVE_SELECTION_TOOLBAR_SHORTCUT)
-    }
     windowManager.closeAllWindows()
     tray?.destroy()
     tray = null

@@ -5,7 +5,7 @@ import { getNavigatorPreferredLocales, resolveAppLanguage } from '../../shared/i
 import MainAppWindow from './windows/MainAppWindow'
 import ChatWindow from './windows/ChatWindow'
 import RecordingBarWindow from './windows/RecordingBarWindow'
-import SelectionToolbarWindow from './windows/SelectionToolbarWindow'
+import QuestionBarWindow from './windows/QuestionBarWindow'
 import TtsPlayerWindow from './windows/TtsPlayerWindow'
 import { getWindowRoleFromLocation, type WindowRole } from './lib/windowRole'
 
@@ -28,18 +28,18 @@ export default function App(props: { initialWindowRole?: WindowRole }): React.JS
     )
   }
 
-  if (role === 'chat') {
+  if (role === 'question-bar') {
     return (
       <I18nProvider language={fallbackLanguage}>
-        <ChatWindow />
+        <QuestionBarWindow />
       </I18nProvider>
     )
   }
 
-  if (role === 'selection-toolbar') {
+  if (role === 'chat') {
     return (
       <I18nProvider language={fallbackLanguage}>
-        <SelectionToolbarWindow />
+        <ChatWindow />
       </I18nProvider>
     )
   }

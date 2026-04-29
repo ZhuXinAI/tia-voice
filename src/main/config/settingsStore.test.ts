@@ -12,7 +12,7 @@ describe('createSettingsStore', () => {
     expect(store.get().providers.asr).toBe('qwen3-asr-flash')
     expect(store.get().themeMode).toBe('system')
     expect(store.get().languagePreference).toBe('system')
-    expect(store.isSelectionToolbarEnabled()).toBe(false)
+    expect(store.isAutoTextToSpeechEnabled()).toBe(false)
     expect(store.getDictionaryEntries()).toHaveLength(2)
     expect(store.getPostProcessPreset()).toBe('formal')
     expect(store.getPostProcessPresets()).toHaveLength(2)
@@ -58,7 +58,7 @@ describe('createSettingsStore', () => {
     firstStore.setProviderLlmModel('openai', 'gpt-4.1-mini')
     firstStore.setPostProcessPreset('casual')
     firstStore.setLanguagePreference('zh-TW')
-    firstStore.setSelectionToolbarEnabled(true)
+    firstStore.setAutoTextToSpeechEnabled(true)
     const dictionaryEntry = firstStore.saveDictionaryEntry({
       phrase: 'build mine',
       replacement: 'BuildMind',
@@ -88,13 +88,48 @@ describe('createSettingsStore', () => {
     })
     expect(secondStore.getPostProcessPreset()).toBe('casual')
     expect(secondStore.get().languagePreference).toBe('zh-TW')
-    expect(secondStore.isSelectionToolbarEnabled()).toBe(true)
+    expect(secondStore.isAutoTextToSpeechEnabled()).toBe(true)
     expect(secondStore.getDictionaryEntries()).toContainEqual(dictionaryEntry)
     expect(secondStore.get().hotkey).toBe('AltRight')
     expect(secondStore.getMicrophone()).toEqual({
       deviceId: 'usb-mic-1',
       label: 'USB Microphone'
     })
+
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('persists question history separately from dictation history', () => {
+    const root = mkdtempSync(join(tmpdir(), 'tia-voice-settings-question-history-'))
+    const firstStore = createSettingsStore('MetaRight', root)
+
+    firstStore.appendQuestionHistory({
+      id: 'qa-1',
+      createdAt: 2,
+      question: 'What does this mean?',
+      answer: 'It describes the API format.',
+      selectedText: 'DeepSeek API uses an OpenAI-compatible format.',
+      sourceApp: 'Chrome',
+      status: 'completed'
+    })
+
+    firstStore.updateQuestionHistoryEntry('qa-1', {
+      answer: 'It says the API is OpenAI-compatible.'
+    })
+
+    const secondStore = createSettingsStore('MetaRight', root)
+    const page = secondStore.getQuestionHistoryPage()
+
+    expect(page.totalCount).toBe(1)
+    expect(page.items[0]).toMatchObject({
+      id: 'qa-1',
+      question: 'What does this mean?',
+      answer: 'It says the API is OpenAI-compatible.',
+      selectedText: 'DeepSeek API uses an OpenAI-compatible format.',
+      sourceApp: 'Chrome',
+      status: 'completed'
+    })
+    expect(secondStore.get().history).toHaveLength(0)
 
     rmSync(root, { recursive: true, force: true })
   })
