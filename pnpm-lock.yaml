@@ -83,12 +83,24 @@ importers:
       debounce-fn:
         specifier: ^6.0.0
         version: 6.0.0
+      define-data-property:
+        specifier: ^1.1.4
+        version: 1.1.4
+      define-properties:
+        specifier: ^1.2.1
+        version: 1.2.1
       electron-updater:
         specifier: ^6.3.9
         version: 6.8.3
       end-of-stream:
         specifier: ^1.4.5
         version: 1.4.5
+      es-define-property:
+        specifier: ^1.0.1
+        version: 1.0.1
+      es-errors:
+        specifier: ^1.3.0
+        version: 1.3.0
       fast-deep-equal:
         specifier: ^3.1.3
         version: 3.1.3
@@ -98,6 +110,12 @@ importers:
       file-uri-to-path:
         specifier: ^1.0.0
         version: 1.0.0
+      gopd:
+        specifier: ^1.2.0
+        version: 1.2.0
+      has-property-descriptors:
+        specifier: ^1.0.2
+        version: 1.0.2
       jimp:
         specifier: ^0.22.10
         version: 0.22.10(encoding@0.1.13)
@@ -116,6 +134,9 @@ importers:
       ms:
         specifier: ^2.1.3
         version: 2.1.3
+      object-keys:
+        specifier: ^1.1.1
+        version: 1.1.1
       once:
         specifier: ^1.4.0
         version: 1.4.0
