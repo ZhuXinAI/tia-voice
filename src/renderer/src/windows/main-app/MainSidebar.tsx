@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   BookText,
   Download,
+  FileAudio,
   Home,
   MessageCircleQuestion,
   Settings2,
@@ -58,6 +59,7 @@ export function MainSidebar(props: MainSidebarProps): React.JSX.Element {
   const location = useLocation()
   const [restartPending, setRestartPending] = useState(false)
   const isHomeRoute = location.pathname === '/'
+  const isMeetingsRoute = location.pathname.startsWith('/meetings')
   const isQuestionAnswerRoute = location.pathname.startsWith('/qa')
   const isDictionaryRoute = location.pathname.startsWith('/dictionary')
   const isPresetsRoute = location.pathname.startsWith('/presets')
@@ -129,11 +131,15 @@ export function MainSidebar(props: MainSidebarProps): React.JSX.Element {
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isQuestionAnswerRoute}
-                  tooltip={t('nav.qa')}
-                >
+                <SidebarMenuButton asChild isActive={isMeetingsRoute} tooltip={t('nav.meetings')}>
+                  <Link to="/meetings">
+                    <FileAudio />
+                    <span>{t('nav.meetings')}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={isQuestionAnswerRoute} tooltip={t('nav.qa')}>
                   <Link to="/qa">
                     <MessageCircleQuestion />
                     <span>{t('nav.qa')}</span>

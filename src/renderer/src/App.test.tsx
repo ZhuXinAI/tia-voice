@@ -20,4 +20,19 @@ describe('App', () => {
     render(<App initialWindowRole="question-bar" />)
     expect(screen.getByTestId('question-bar-window')).toBeInTheDocument()
   })
+
+  it('renders the meeting capture role', () => {
+    render(<App initialWindowRole="meeting-capture" />)
+    expect(screen.getByTestId('meeting-capture-window')).toBeInTheDocument()
+  })
+
+  it('renders the live caption setup role', () => {
+    render(<App initialWindowRole="live-caption-config" />)
+    expect(screen.getByTestId('live-caption-config-window')).toBeInTheDocument()
+  })
+
+  it('renders the live caption overlay role', () => {
+    render(<App initialWindowRole="live-caption-overlay" />)
+    expect(screen.getByTestId('live-caption-overlay-window')).toBeInTheDocument()
+  })
 })

@@ -2,12 +2,20 @@ import type {
   AppLanguage,
   RecordingArtifact,
   RecordingCommand,
+  LiveCaptionCommand,
+  LiveCaptionPcmChunkPayload,
+  LiveCaptionPreferences,
+  LiveCaptionState,
+  MeetingCaptureCommand,
+  MeetingCaptureState,
+  MeetingPcmChunkPayload,
   QuestionRecordingCommand,
   TiaApi,
   TiaChatState,
   TtsStatePayload
 } from '../../../preload/index'
 import { DEFAULT_DICTIONARY_ENTRIES } from '../../../shared/dictionary'
+import { DEFAULT_LIVE_CAPTION_PREFERENCES } from '../../../shared/liveCaption'
 
 export type Unsubscribe = () => void
 
@@ -73,6 +81,7 @@ const noopMainAppState = {
   features: {
     autoTextToSpeech: false
   },
+  liveCaption: DEFAULT_LIVE_CAPTION_PREFERENCES,
   dictionaryEntries: DEFAULT_DICTIONARY_ENTRIES.map((entry) => ({ ...entry })),
   postProcessPreset: 'formal' as const,
   postProcessPresets: [
@@ -141,13 +150,23 @@ const noopMainAppState = {
 const noopApi: TiaApi = {
   onRecordingCommand: () => () => undefined,
   onQuestionRecordingCommand: () => () => undefined,
+  onMeetingCommand: () => () => undefined,
+  onLiveCaptionCommand: () => () => undefined,
   submitRecordingArtifact: async () => undefined,
   submitQuestionRecordingArtifact: async () => undefined,
+  sendMeetingPcmChunk: async () => undefined,
+  sendLiveCaptionPcmChunk: async () => undefined,
+  submitMeetingMixedAudio: async () => undefined,
+  requestFinishMeeting: async () => undefined,
   cancelQuestionRecording: async () => undefined,
   reportRecordingFailure: async () => undefined,
   reportQuestionRecordingFailure: async () => undefined,
+  reportMeetingCaptureFailure: async () => undefined,
+  reportLiveCaptionCaptureFailure: async () => undefined,
   onChatState: () => () => undefined,
   onTtsState: () => () => undefined,
+  onMeetingState: () => () => undefined,
+  onLiveCaptionState: () => () => undefined,
   onAppState: () => () => undefined,
   getChatState: async () => ({ phase: 'idle' }),
   getTtsState: async () => ({
@@ -163,13 +182,26 @@ const noopApi: TiaApi = {
     createdAt: null,
     error: null
   }),
+  getLiveCaptionState: async () => ({
+    status: 'idle',
+    source: null,
+    preferences: DEFAULT_LIVE_CAPTION_PREFERENCES,
+    lines: [],
+    error: null
+  }),
+  getLiveCaptionPreferences: async () => DEFAULT_LIVE_CAPTION_PREFERENCES,
   getMainAppState: async () => noopMainAppState,
   getHistoryPage: async () => ({ items: [], totalCount: 0 }),
   getQuestionHistoryPage: async () => ({ items: [], totalCount: 0 }),
+  getMeetingHistoryPage: async () => ({ items: [], totalCount: 0 }),
+  getMeetingDetail: async () => null,
   getHistoryEntryDebug: async () => null,
   retryHistoryEntry: async () => undefined,
   startDictation: async () => undefined,
   stopDictation: async () => undefined,
+  startLiveCaption: async () => true,
+  stopLiveCaption: async () => undefined,
+  setLiveCaptionPreferences: async () => undefined,
   startTextToSpeech: async () => undefined,
   stopTextToSpeech: async () => undefined,
   setThemeMode: async () => undefined,
@@ -235,12 +267,40 @@ export function subscribeToQuestionRecordingCommand(
   return getApi().onQuestionRecordingCommand(listener)
 }
 
+export function subscribeToMeetingCommand(
+  listener: (command: MeetingCaptureCommand) => void
+): Unsubscribe {
+  return getApi().onMeetingCommand(listener)
+}
+
+export function subscribeToLiveCaptionCommand(
+  listener: (command: LiveCaptionCommand) => void
+): Unsubscribe {
+  return getApi().onLiveCaptionCommand(listener)
+}
+
 export function submitRecordingArtifact(artifact: RecordingArtifact): Promise<void> {
   return getApi().submitRecordingArtifact(artifact)
 }
 
 export function submitQuestionRecordingArtifact(artifact: RecordingArtifact): Promise<void> {
   return getApi().submitQuestionRecordingArtifact(artifact)
+}
+
+export function sendMeetingPcmChunk(input: MeetingPcmChunkPayload): Promise<void> {
+  return getApi().sendMeetingPcmChunk(input)
+}
+
+export function sendLiveCaptionPcmChunk(input: LiveCaptionPcmChunkPayload): Promise<void> {
+  return getApi().sendLiveCaptionPcmChunk(input)
+}
+
+export function submitMeetingMixedAudio(artifact: RecordingArtifact): Promise<void> {
+  return getApi().submitMeetingMixedAudio(artifact)
+}
+
+export function requestFinishMeeting(): Promise<void> {
+  return getApi().requestFinishMeeting()
 }
 
 export function cancelQuestionRecording(): Promise<void> {
@@ -255,12 +315,32 @@ export function reportQuestionRecordingFailure(detail: string): Promise<void> {
   return getApi().reportQuestionRecordingFailure(detail)
 }
 
+export function reportMeetingCaptureFailure(detail: string): Promise<void> {
+  return getApi().reportMeetingCaptureFailure(detail)
+}
+
+export function reportLiveCaptionCaptureFailure(detail: string): Promise<void> {
+  return getApi().reportLiveCaptionCaptureFailure(detail)
+}
+
 export function subscribeToChatState(listener: (state: TiaChatState) => void): Unsubscribe {
   return getApi().onChatState(listener)
 }
 
 export function subscribeToTtsState(listener: (state: TtsStatePayload) => void): Unsubscribe {
   return getApi().onTtsState(listener)
+}
+
+export function subscribeToMeetingState(
+  listener: (state: MeetingCaptureState) => void
+): Unsubscribe {
+  return getApi().onMeetingState(listener)
+}
+
+export function subscribeToLiveCaptionState(
+  listener: (state: LiveCaptionState) => void
+): Unsubscribe {
+  return getApi().onLiveCaptionState(listener)
 }
 
 export function subscribeToAppState(
@@ -277,6 +357,14 @@ export function getTtsState(): Promise<TtsStatePayload> {
   return getApi().getTtsState()
 }
 
+export function getLiveCaptionState(): Promise<LiveCaptionState> {
+  return getApi().getLiveCaptionState()
+}
+
+export function getLiveCaptionPreferences(): Promise<LiveCaptionPreferences> {
+  return getApi().getLiveCaptionPreferences()
+}
+
 export function getMainAppState(): ReturnType<TiaApi['getMainAppState']> {
   return getApi().getMainAppState()
 }
@@ -291,6 +379,18 @@ export function getQuestionHistoryPage(
   input?: Parameters<TiaApi['getQuestionHistoryPage']>[0]
 ): ReturnType<TiaApi['getQuestionHistoryPage']> {
   return getApi().getQuestionHistoryPage(input)
+}
+
+export function getMeetingHistoryPage(
+  input?: Parameters<TiaApi['getMeetingHistoryPage']>[0]
+): ReturnType<TiaApi['getMeetingHistoryPage']> {
+  return getApi().getMeetingHistoryPage(input)
+}
+
+export function getMeetingDetail(
+  meetingId: Parameters<TiaApi['getMeetingDetail']>[0]
+): ReturnType<TiaApi['getMeetingDetail']> {
+  return getApi().getMeetingDetail(meetingId)
 }
 
 export function getHistoryEntryDebug(
@@ -313,6 +413,24 @@ export function stopDictation(
   source?: Parameters<TiaApi['stopDictation']>[0]
 ): ReturnType<TiaApi['stopDictation']> {
   return getApi().stopDictation(source)
+}
+
+export function startLiveCaption(
+  preferences: Parameters<TiaApi['startLiveCaption']>[0]
+): ReturnType<TiaApi['startLiveCaption']> {
+  return getApi().startLiveCaption(preferences)
+}
+
+export function stopLiveCaption(
+  source?: Parameters<TiaApi['stopLiveCaption']>[0]
+): ReturnType<TiaApi['stopLiveCaption']> {
+  return getApi().stopLiveCaption(source)
+}
+
+export function setLiveCaptionPreferences(
+  preferences: Parameters<TiaApi['setLiveCaptionPreferences']>[0]
+): ReturnType<TiaApi['setLiveCaptionPreferences']> {
+  return getApi().setLiveCaptionPreferences(preferences)
 }
 
 export function startTextToSpeech(

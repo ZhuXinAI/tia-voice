@@ -33,6 +33,9 @@ beforeAll(async () => {
 describe('buildRendererRoute', () => {
   it('builds deterministic urls for each window role', () => {
     expect(buildRendererRoute('recording-bar')).toContain('window=recording-bar')
+    expect(buildRendererRoute('meeting-capture')).toContain('window=meeting-capture')
+    expect(buildRendererRoute('live-caption-config')).toContain('window=live-caption-config')
+    expect(buildRendererRoute('live-caption-overlay')).toContain('window=live-caption-overlay')
     expect(buildRendererRoute('chat')).toContain('window=chat')
     expect(buildRendererRoute('main-app')).toContain('window=main-app')
   })
@@ -201,9 +204,22 @@ describe('createWindowManager', () => {
       }
     } as unknown as import('electron').BrowserWindow
 
+    const meetingCaptureWindow = {
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      destroy: vi.fn(),
+      webContents: {
+        isDestroyed: vi.fn(() => false),
+        isLoadingMainFrame: vi.fn(() => false),
+        once: vi.fn(),
+        send: vi.fn()
+      }
+    } as unknown as import('electron').BrowserWindow
+
     const manager = createWindowManager({
       mainAppWindow,
       recordingBarWindow,
+      meetingCaptureWindow,
       chatWindow
     })
 
@@ -211,9 +227,146 @@ describe('createWindowManager', () => {
 
     expect(chatWindow.close).toHaveBeenCalledOnce()
     expect(chatWindow.destroy).toHaveBeenCalledOnce()
+    expect(meetingCaptureWindow.close).toHaveBeenCalledOnce()
+    expect(meetingCaptureWindow.destroy).toHaveBeenCalledOnce()
     expect(recordingBarWindow.close).toHaveBeenCalledOnce()
     expect(recordingBarWindow.destroy).toHaveBeenCalledOnce()
     expect(mainAppWindow.close).toHaveBeenCalledOnce()
     expect(mainAppWindow.destroy).toHaveBeenCalledOnce()
+  })
+
+  it('shows and updates the meeting capture window', () => {
+    const send = vi.fn()
+    const mainAppWindow = {
+      isDestroyed: vi.fn(() => false),
+      webContents: {
+        isDestroyed: vi.fn(() => false),
+        isLoadingMainFrame: vi.fn(() => false),
+        once: vi.fn(),
+        send: vi.fn()
+      }
+    } as unknown as import('electron').BrowserWindow
+    const recordingBarWindow = {
+      isDestroyed: vi.fn(() => false),
+      webContents: {
+        isDestroyed: vi.fn(() => false),
+        isLoadingMainFrame: vi.fn(() => false),
+        once: vi.fn(),
+        send: vi.fn()
+      }
+    } as unknown as import('electron').BrowserWindow
+    const meetingCaptureWindow = {
+      isDestroyed: vi.fn(() => false),
+      setAlwaysOnTop: vi.fn(),
+      showInactive: vi.fn(),
+      hide: vi.fn(),
+      webContents: {
+        isDestroyed: vi.fn(() => false),
+        isLoadingMainFrame: vi.fn(() => false),
+        once: vi.fn(),
+        send
+      }
+    } as unknown as import('electron').BrowserWindow
+
+    const manager = createWindowManager({
+      mainAppWindow,
+      recordingBarWindow,
+      meetingCaptureWindow
+    })
+
+    manager.showMeetingCapture({ type: 'start', deviceId: 'mic-1' })
+    manager.setMeetingCaptureState({
+      status: 'recording',
+      meetingId: 'meeting-1',
+      startedAt: 123,
+      transcriptItems: [{ id: 'seg-1', speaker: 'You', text: 'hello', createdAt: 456 }],
+      errorDetail: null
+    })
+
+    expect(meetingCaptureWindow.setAlwaysOnTop).toHaveBeenCalledWith(true, 'screen-saver')
+    expect(meetingCaptureWindow.showInactive).toHaveBeenCalled()
+    expect(send).toHaveBeenCalledWith(IPC_CHANNELS.meetingCapture.command, {
+      type: 'start',
+      deviceId: 'mic-1'
+    })
+    expect(send).toHaveBeenCalledWith(
+      IPC_CHANNELS.meetingCapture.state,
+      expect.objectContaining({ meetingId: 'meeting-1' })
+    )
+  })
+
+  it('shows the live caption setup and sends overlay commands', () => {
+    const send = vi.fn()
+    const mainAppWindow = {
+      isDestroyed: vi.fn(() => false),
+      webContents: {
+        isDestroyed: vi.fn(() => false),
+        isLoadingMainFrame: vi.fn(() => false),
+        once: vi.fn(),
+        send: vi.fn()
+      }
+    } as unknown as import('electron').BrowserWindow
+    const recordingBarWindow = {
+      isDestroyed: vi.fn(() => false),
+      webContents: {
+        isDestroyed: vi.fn(() => false),
+        isLoadingMainFrame: vi.fn(() => false),
+        once: vi.fn(),
+        send: vi.fn()
+      }
+    } as unknown as import('electron').BrowserWindow
+    const liveCaptionConfigWindow = {
+      isDestroyed: vi.fn(() => false),
+      show: vi.fn(),
+      focus: vi.fn(),
+      webContents: {
+        isDestroyed: vi.fn(() => false),
+        isLoadingMainFrame: vi.fn(() => false),
+        once: vi.fn(),
+        send
+      }
+    } as unknown as import('electron').BrowserWindow
+    const liveCaptionOverlayWindow = {
+      isDestroyed: vi.fn(() => false),
+      setAlwaysOnTop: vi.fn(),
+      showInactive: vi.fn(),
+      hide: vi.fn(),
+      webContents: {
+        isDestroyed: vi.fn(() => false),
+        isLoadingMainFrame: vi.fn(() => false),
+        once: vi.fn(),
+        send
+      }
+    } as unknown as import('electron').BrowserWindow
+
+    const manager = createWindowManager({
+      mainAppWindow,
+      recordingBarWindow,
+      liveCaptionConfigWindow,
+      liveCaptionOverlayWindow
+    })
+
+    manager.showLiveCaptionConfig()
+    manager.setLiveCaptionState({
+      status: 'listening',
+      source: 'standalone',
+      preferences: {
+        sourceLanguage: 'auto',
+        targetLanguage: null,
+        showOriginalWhenTranslating: true
+      },
+      lines: [],
+      error: null
+    })
+    manager.showLiveCaptionOverlay()
+    manager.sendLiveCaptionCommand({ type: 'start-capture' })
+
+    expect(liveCaptionConfigWindow.show).toHaveBeenCalledOnce()
+    expect(liveCaptionConfigWindow.focus).toHaveBeenCalledOnce()
+    expect(liveCaptionOverlayWindow.setAlwaysOnTop).toHaveBeenCalledWith(true, 'screen-saver')
+    expect(liveCaptionOverlayWindow.showInactive).toHaveBeenCalledOnce()
+    expect(send).toHaveBeenCalledWith(IPC_CHANNELS.liveCaption.command, {
+      type: 'start-capture'
+    })
   })
 })

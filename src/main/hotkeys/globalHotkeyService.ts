@@ -9,7 +9,9 @@ export const triggerKeyCodes: Record<TriggerKey, number> = {
 export const keyboardKeyCodes = {
   ControlLeft: 29,
   ControlRight: 3613,
+  KeyL: 38,
   KeyT: 20,
+  KeyR: 19,
   MacVirtualKeyT: 17
 } as const
 

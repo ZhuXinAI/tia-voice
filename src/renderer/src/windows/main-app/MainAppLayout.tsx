@@ -46,6 +46,10 @@ export function MainAppLayout(props: MainAppLayoutProps): React.JSX.Element {
       return t('nav.qa')
     }
 
+    if (location.pathname.startsWith('/meetings')) {
+      return t('nav.meetings')
+    }
+
     if (location.pathname.startsWith('/presets')) {
       return t('nav.presets')
     }

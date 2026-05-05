@@ -45,6 +45,7 @@ import { HomeRoute } from './main-app/HomeRoute'
 import { HistoryDialog } from './main-app/HistoryDialog'
 import { HistoryDebugDialog } from './main-app/HistoryDebugDialog'
 import { MainAppLayout } from './main-app/MainAppLayout'
+import { MeetingsRoute } from './main-app/MeetingsRoute'
 import { OnboardingDialog } from './main-app/OnboardingDialog'
 import { PresetsRoute } from './main-app/PresetsRoute'
 import { QuestionAnswerRoute } from './main-app/QuestionAnswerRoute'
@@ -446,6 +447,8 @@ export default function MainAppWindow(): React.JSX.Element {
                 />
               }
             />
+
+            <Route path="meetings" element={<MeetingsRoute />} />
 
             <Route
               path="dictionary"

@@ -4,6 +4,9 @@ import { getNavigatorPreferredLocales, resolveAppLanguage } from '../../shared/i
 
 import MainAppWindow from './windows/MainAppWindow'
 import ChatWindow from './windows/ChatWindow'
+import LiveCaptionConfigWindow from './windows/LiveCaptionConfigWindow'
+import LiveCaptionOverlayWindow from './windows/LiveCaptionOverlayWindow'
+import MeetingCaptureWindow from './windows/MeetingCaptureWindow'
 import RecordingBarWindow from './windows/RecordingBarWindow'
 import QuestionBarWindow from './windows/QuestionBarWindow'
 import TtsPlayerWindow from './windows/TtsPlayerWindow'
@@ -24,6 +27,30 @@ export default function App(props: { initialWindowRole?: WindowRole }): React.JS
     return (
       <I18nProvider language={fallbackLanguage}>
         <RecordingBarWindow />
+      </I18nProvider>
+    )
+  }
+
+  if (role === 'meeting-capture') {
+    return (
+      <I18nProvider language={fallbackLanguage}>
+        <MeetingCaptureWindow />
+      </I18nProvider>
+    )
+  }
+
+  if (role === 'live-caption-config') {
+    return (
+      <I18nProvider language={fallbackLanguage}>
+        <LiveCaptionConfigWindow />
+      </I18nProvider>
+    )
+  }
+
+  if (role === 'live-caption-overlay') {
+    return (
+      <I18nProvider language={fallbackLanguage}>
+        <LiveCaptionOverlayWindow />
       </I18nProvider>
     )
   }
