@@ -4,6 +4,11 @@ import type {
   LiveCaptionSourceLanguage,
   LiveCaptionTargetLanguage
 } from '../../../shared/liveCaption'
+import {
+  createRealtimeVadAudioGate,
+  type RealtimeVadAudioGate,
+  type RealtimeVadAudioGateOptions
+} from './realtimeVadAudioGate'
 
 type ApiKeyResolver = string | (() => string | Promise<string>)
 
@@ -81,6 +86,7 @@ export type GummyRealtimeTranscriptionClientOptions = {
   targetLanguage?: LiveCaptionTargetLanguage | null
   taskIdFactory?: () => string
   WebSocketCtor?: GummyWebSocketConstructor
+  vadGateFactory?: (options: RealtimeVadAudioGateOptions) => RealtimeVadAudioGate
   onTranscript(input: GummyTranscriptUpdate): void
 }
 
@@ -194,6 +200,11 @@ export function createGummyRealtimeTranscriptionClient(
   const taskId = (input.taskIdFactory ?? createTaskId)()
   const WebSocketCtor = input.WebSocketCtor ?? WebSocket
   const queuedAudio: Uint8Array[] = []
+  const vadGate = (input.vadGateFactory ?? createRealtimeVadAudioGate)({
+    sampleRate,
+    onSpeechChunk: sendSpeechChunk,
+    onError: (error) => fail(error)
+  })
 
   let socket: GummySocket | null = null
   let startDeferred: Deferred<void> | null = null
@@ -252,8 +263,19 @@ export function createGummyRealtimeTranscriptionClient(
     }
 
     failedError = error
+    vadGate.destroy()
     rejectPending(error)
     socket?.close()
+  }
+
+  function sendSpeechChunk(chunk: Uint8Array): void {
+    const audioChunk = Uint8Array.from(chunk)
+    if (started) {
+      socket?.send(audioChunk)
+      return
+    }
+
+    queuedAudio.push(audioChunk)
   }
 
   function flushAudioQueue(): void {
@@ -263,6 +285,34 @@ export function createGummyRealtimeTranscriptionClient(
         socket?.send(chunk)
       }
     }
+  }
+
+  function handleTaskStarted(): void {
+    started = true
+    vadGate
+      .start()
+      .then(() => {
+        if (failedError || aborted) {
+          return
+        }
+
+        flushAudioQueue()
+        startDeferred?.resolve()
+      })
+      .catch((error) => fail(error instanceof Error ? error : new Error(String(error))))
+  }
+
+  function flushVadAndFinishTask(): void {
+    vadGate
+      .flush()
+      .then(() => {
+        if (failedError || aborted) {
+          return
+        }
+
+        sendFinishTask()
+      })
+      .catch((error) => fail(error instanceof Error ? error : new Error(String(error))))
   }
 
   function handleResultGenerated(message: GummyServerMessage): void {
@@ -305,9 +355,7 @@ export function createGummyRealtimeTranscriptionClient(
 
     switch (message.header?.event) {
       case 'task-started':
-        started = true
-        flushAudioQueue()
-        startDeferred?.resolve()
+        handleTaskStarted()
         break
       case 'result-generated':
         handleResultGenerated(message)
@@ -357,6 +405,9 @@ export function createGummyRealtimeTranscriptionClient(
       startDeferred = createDeferred()
 
       try {
+        vadGate
+          .start()
+          .catch((error) => fail(error instanceof Error ? error : new Error(String(error))))
         const apiKey = resolveApiKey(input.apiKey)
         if (isPromiseLike(apiKey)) {
           apiKey
@@ -378,12 +429,7 @@ export function createGummyRealtimeTranscriptionClient(
       }
 
       const audioChunk = Uint8Array.from(chunk)
-      if (started) {
-        socket?.send(audioChunk)
-        return
-      }
-
-      queuedAudio.push(audioChunk)
+      vadGate.processPcm16Chunk(audioChunk)
     },
 
     finish() {
@@ -404,9 +450,11 @@ export function createGummyRealtimeTranscriptionClient(
       }
 
       if (started) {
-        sendFinishTask()
+        flushVadAndFinishTask()
       } else {
-        startDeferred.promise.then(sendFinishTask).catch((error) => finishDeferred?.reject(error))
+        startDeferred.promise
+          .then(flushVadAndFinishTask)
+          .catch((error) => finishDeferred?.reject(error))
       }
 
       return finishDeferred.promise
@@ -420,6 +468,7 @@ export function createGummyRealtimeTranscriptionClient(
       aborted = true
       const error = new Error(reason ?? 'Gummy realtime transcription aborted.')
       rejectPending(error)
+      vadGate.destroy()
       socket?.terminate?.()
       socket?.close()
     }

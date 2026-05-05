@@ -1,6 +1,16 @@
 # TIA Voice
 
-TIA Voice is an open source, context-aware voice assistant for desktop. Hold a global hotkey, speak, and your words are transcribed, intelligently refined, and pasted directly into the app you are using. It also provides text-to-speech playback and a smart selection toolbar — making it more than just a dictation tool.
+TIA Voice is an open source, context-aware voice assistant for desktop. Hold a global hotkey, speak, and your words are transcribed, intelligently refined, and pasted directly into the app you are using. It also provides meeting capture, live captions, text-to-speech playback, and a smart selection toolbar — making it more than just a dictation tool.
+
+## Screenshots
+
+| Dashboard | Meeting capture |
+|---|---|
+| ![TIA Voice dashboard](docs/assets/screenshots/tia-voice-dashboard.png) | ![TIA Voice meeting history](docs/assets/screenshots/tia-voice-meetings.png) |
+
+| Meeting detail | Live Caption |
+|---|---|
+| ![TIA Voice meeting detail](docs/assets/screenshots/tia-voice-meeting-detail.png) | ![TIA Voice live caption overlay](docs/assets/screenshots/tia-voice-live-caption-overlay.png) |
 
 ## Comparison with Similar Tools
 
@@ -13,6 +23,8 @@ TIA Voice is inspired by desktop voice dictation tools like **MacWhisper**, **Wi
 | Custom post-process presets | ✅ | ❌ | ❌ | ❌ |
 | Dictionary normalization | ✅ | ❌ | ❌ | ❌ |
 | Intent routing (dictate vs. edit vs. Q&A) | ✅ | ❌ | ❌ | ❌ |
+| Meeting capture with summaries | ✅ | ❌ | ❌ | ❌ |
+| Live system-audio captions & translation | ✅ | ❌ | ❌ | ❌ |
 | Selection toolbar with TTS | ✅ | ❌ | ❌ | ❌ |
 | Text-to-speech with word highlighting | ✅ | ❌ | ❌ | ❌ |
 | Multi-provider (DashScope / OpenAI) | ✅ | ✅ (local) | ✅ | ✅ |
@@ -30,6 +42,20 @@ TIA Voice understands context and adapts its behavior automatically:
 - **Dictation mode** — No text selected, cursor in a text field: transcribe and paste your spoken words.
 - **Edit mode** — Text is selected in a text field: your voice command rewrites the selected text (e.g., select a sentence and say "make this more formal").
 - **Q&A mode** — Text is selected outside a text field (e.g., in a browser): your voice question is answered based on the selected text.
+
+### Meeting Capture
+Press `Control+R` to capture a meeting. TIA Voice records microphone audio and system audio, streams both through DashScope Gummy realtime transcription, and keeps speakers separated as **You** and **Others**.
+
+- Saves a mixed local meeting audio file and raw transcript.
+- Automatically generates a title, polished transcript, and meeting summary after capture ends.
+- Stores meeting history locally with playback, summary, polished transcript, and raw transcript views.
+
+### Live Caption
+Press `Control+L` to open Live Caption for system audio. TIA Voice shows a compact always-on-top caption overlay for calls, videos, or any audio playing on the machine.
+
+- Supports auto-detected source captions plus optional translation.
+- Can show the original text below translated captions.
+- Shares the same system-audio transcription path used by meeting capture, and can also mirror the **Others** stream during a meeting.
 
 ### Selection Toolbar
 When you select text in your browser, a floating toolbar appears with instant actions:
@@ -61,6 +87,7 @@ Track your voice usage from the home dashboard: total words spoken, average word
 Choose your AI backend:
 
 - **ASR (Speech-to-Text)**: DashScope Qwen ASR Flash / OpenAI Whisper
+- **Realtime meeting/caption transcription**: DashScope Gummy
 - **LLM (Cleanup & Intent)**: DashScope Qwen3.5 Flash / OpenAI GPT
 - **TTS (Text-to-Speech)**: DashScope CosyVoice v3
 
@@ -105,11 +132,14 @@ pnpm build:linux  # Build Linux distributable
 - **Global Hotkeys**: `uiohook-napi` (native)
 - **Clipboard & Paste**: `@nut-tree-fork/nut-js`
 - **Text Selection Hook**: `selection-hook` (native, Chrome-based browsers)
+- **Realtime Meeting/Captions**: DashScope Gummy with Electron system-audio capture
 - **TTS**: DashScope CosyVoice API with word-level timestamps
 
 ## Notes
 
 - The default push-to-talk key is `Right Command` on macOS and `Right Alt` on Windows. You can change it to `Right Option` or `Right Control` in Settings.
+- Meeting capture uses `Control+R`; Live Caption uses `Control+L`.
+- System-audio capture on macOS works best on macOS 14.2+. Older macOS versions may need a virtual audio device for system audio.
 - DashScope requests use `https://dashscope.aliyuncs.com/compatible-mode/v1` by default. Override with `DASHSCOPE_BASE_URL` if you need a proxy.
 - Your API key is stored locally in the app settings on the current machine and never leaves your device except for direct API calls.
 - `uiohook-napi` is a native dependency. If the global hotkey fails to initialize after install, run `pnpm rebuild uiohook-napi` and restart the app.

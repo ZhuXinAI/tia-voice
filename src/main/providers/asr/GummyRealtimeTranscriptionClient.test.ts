@@ -5,6 +5,7 @@ import {
   createGummyRealtimeTranscriptionClient,
   type GummyRealtimeTranscriptionClient
 } from './GummyRealtimeTranscriptionClient'
+import type { RealtimeVadAudioGate, RealtimeVadAudioGateOptions } from './realtimeVadAudioGate'
 
 type Listener = (() => void) | ((data: RawData) => void) | ((error: Error) => void)
 type DecodedFrame = {
@@ -16,6 +17,22 @@ type DecodedFrame = {
     attributes?: Record<string, unknown>
   }
   payload?: unknown
+}
+type Deferred = {
+  promise: Promise<void>
+  resolve(): void
+  reject(error: unknown): void
+}
+
+function createDeferred(): Deferred {
+  let resolve!: () => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<void>((innerResolve, innerReject) => {
+    resolve = innerResolve
+    reject = innerReject
+  })
+
+  return { promise, resolve, reject }
 }
 
 class MockWebSocket {
@@ -85,6 +102,7 @@ function createClient(input?: {
   }) => void
   sourceLanguage?: 'auto' | 'en' | 'zh'
   targetLanguage?: 'en' | 'zh' | null
+  vadGateFactory?: (options: RealtimeVadAudioGateOptions) => RealtimeVadAudioGate
 }): GummyRealtimeTranscriptionClient {
   MockWebSocket.instances = []
 
@@ -94,8 +112,18 @@ function createClient(input?: {
     targetLanguage: input?.targetLanguage,
     taskIdFactory: () => 'test-task-id',
     WebSocketCtor: MockWebSocket,
+    vadGateFactory: input?.vadGateFactory ?? createPassThroughVadGate,
     onTranscript: input?.onTranscript ?? vi.fn()
   })
+}
+
+function createPassThroughVadGate(options: RealtimeVadAudioGateOptions): RealtimeVadAudioGate {
+  return {
+    start: vi.fn(async () => undefined),
+    processPcm16Chunk: vi.fn((chunk) => options.onSpeechChunk(Uint8Array.from(chunk))),
+    flush: vi.fn(async () => undefined),
+    destroy: vi.fn()
+  }
 }
 
 function getSocket(): MockWebSocket {
@@ -245,6 +273,77 @@ describe('createGummyRealtimeTranscriptionClient', () => {
 
     expect(socket.sent[1]).toEqual(firstChunk)
     expect(socket.sent[2]).toEqual(secondChunk)
+  })
+
+  it('runs chunks through the VAD gate before sending audio to Gummy', async () => {
+    const gateOptionsRef: { current?: RealtimeVadAudioGateOptions } = {}
+    const processPcm16Chunk = vi.fn()
+    const client = createClient({
+      vadGateFactory: (options) => {
+        gateOptionsRef.current = options
+        return {
+          start: vi.fn(async () => undefined),
+          processPcm16Chunk,
+          flush: vi.fn(async () => undefined),
+          destroy: vi.fn()
+        }
+      }
+    })
+    const started = client.start()
+    const socket = getSocket()
+
+    socket.open()
+    socket.serverMessage(taskStarted())
+    await started
+
+    client.sendAudioChunk(new Uint8Array([1, 2, 3]))
+
+    expect(processPcm16Chunk).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]))
+    expect(socket.sent).toHaveLength(1)
+
+    const resolvedGateOptions = gateOptionsRef.current
+    if (!resolvedGateOptions) {
+      throw new Error('Expected VAD gate options')
+    }
+
+    resolvedGateOptions.onSpeechChunk(new Uint8Array([4, 5, 6]))
+
+    expect(socket.sent[1]).toEqual(new Uint8Array([4, 5, 6]))
+  })
+
+  it('flushes the VAD gate before finishing the Gummy task', async () => {
+    const vadFlushed = createDeferred()
+    const client = createClient({
+      vadGateFactory: (options) => ({
+        start: vi.fn(async () => undefined),
+        processPcm16Chunk: vi.fn((chunk) => options.onSpeechChunk(Uint8Array.from(chunk))),
+        flush: vi.fn(() => vadFlushed.promise),
+        destroy: vi.fn()
+      })
+    })
+    const started = client.start()
+    const socket = getSocket()
+
+    socket.open()
+    socket.serverMessage(taskStarted())
+    await started
+
+    const finished = client.finish()
+    await Promise.resolve()
+
+    expect(socket.sent).toHaveLength(1)
+
+    vadFlushed.resolve()
+    await Promise.resolve()
+
+    expect(decodeFrame(socket.sent[1]).header.action).toBe('finish-task')
+
+    socket.serverMessage({
+      header: { event: 'task-finished', task_id: 'test-task-id', attributes: {} },
+      payload: { output: {}, usage: null }
+    })
+
+    await expect(finished).resolves.toBeUndefined()
   })
 
   it('emits interim transcript updates when sentence_end is false', async () => {
@@ -421,6 +520,7 @@ describe('createGummyRealtimeTranscriptionClient', () => {
     await started
 
     const finished = client.finish()
+    await Promise.resolve()
     const finishTask = decodeFrame(socket.sent[1])
     let didResolve = false
     finished.then(() => {

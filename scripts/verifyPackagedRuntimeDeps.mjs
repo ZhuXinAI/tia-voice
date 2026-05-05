@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { listPackage } from '@electron/asar'
 
 const ROOT_RUNTIME_PACKAGES = [
+  '@ericedouard/vad-node-realtime',
   'electron-updater',
   'jimp',
   '@nut-tree-fork/nut-js'

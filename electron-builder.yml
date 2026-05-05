@@ -11,6 +11,10 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 asarUnpack:
   - resources/**
+  - node_modules/@ericedouard/vad-node-realtime/**
+  - node_modules/onnxruntime-node/**
+  - node_modules/.pnpm/**/node_modules/@ericedouard/vad-node-realtime/**
+  - node_modules/.pnpm/**/node_modules/onnxruntime-node/**
 protocols:
   - name: TIA Voice
     schemes:
