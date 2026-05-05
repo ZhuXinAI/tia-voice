@@ -5,6 +5,7 @@ import { join } from 'path'
 import type {
   CreateMeetingInput,
   MeetingAudioAsset,
+  MeetingAudioFile,
   MeetingCaptureRecord,
   MeetingPage,
   MeetingPageInput,
@@ -76,6 +77,13 @@ function normalizeAudio(value: unknown): MeetingAudioAsset | undefined {
     typeof audio.mimeType !== 'string' ||
     typeof audio.durationMs !== 'number' ||
     typeof audio.sizeBytes !== 'number'
+  ) {
+    return undefined
+  }
+  if (
+    audio.fileName.includes('/') ||
+    audio.fileName.includes('\\') ||
+    audio.fileName.includes('\0')
   ) {
     return undefined
   }
@@ -195,6 +203,23 @@ export function createMeetingStore(storageRoot: string): MeetingStore {
     writeFileSync(getTranscriptPath(meetingId), JSON.stringify(segments, null, 2), 'utf8')
   }
 
+  function readMixedAudioFile(meetingId: string): MeetingAudioFile | null {
+    const meeting = readMeeting(meetingId)
+    if (!meeting?.audio) {
+      return null
+    }
+
+    const filePath = join(getMeetingDir(meetingId), meeting.audio.fileName)
+    if (!existsSync(filePath)) {
+      return null
+    }
+
+    return {
+      ...meeting.audio,
+      filePath
+    }
+  }
+
   return {
     createMeeting(input: CreateMeetingInput = {}): MeetingCaptureRecord {
       const startedAt = input.startedAt ?? Date.now()
@@ -303,16 +328,22 @@ export function createMeetingStore(storageRoot: string): MeetingStore {
       return { ...audio }
     },
 
+    getMixedAudioFile(meetingId: string) {
+      const audio = readMixedAudioFile(meetingId)
+      return audio ? { ...audio } : null
+    },
+
     async readMixedAudio(meetingId: string) {
-      const meeting = readMeeting(meetingId)
-      if (!meeting?.audio) {
+      const audio = readMixedAudioFile(meetingId)
+      if (!audio) {
         return null
       }
 
       try {
-        const buffer = await readFile(join(getMeetingDir(meetingId), meeting.audio.fileName))
+        const buffer = await readFile(audio.filePath)
+        const { filePath: _filePath, ...asset } = audio
         return {
-          ...meeting.audio,
+          ...asset,
           buffer: new Uint8Array(buffer)
         }
       } catch {

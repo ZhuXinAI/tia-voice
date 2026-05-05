@@ -76,6 +76,7 @@ function createStoreMock(): MeetingStore {
       durationMs: 1000,
       sizeBytes: 3
     })),
+    getMixedAudioFile: vi.fn(() => null),
     readMixedAudio: vi.fn(async () => null),
     listRecentMeetings: vi.fn(() => ({ items: [record], totalCount: 1 }))
   }
@@ -90,6 +91,7 @@ function setupPipeline(): {
   meetingPostProcessor: MeetingPostProcessor
   showMeetingCapture: ReturnType<typeof vi.fn>
   stopMeetingCapture: ReturnType<typeof vi.fn>
+  hideMeetingCapture: ReturnType<typeof vi.fn>
   setMeetingCaptureState: ReturnType<typeof vi.fn>
 } {
   const store = createStoreMock()
@@ -98,6 +100,7 @@ function setupPipeline(): {
   const callbacks = new Map<string, (update: GummyTranscriptUpdate) => void>()
   const showMeetingCapture = vi.fn()
   const stopMeetingCapture = vi.fn()
+  const hideMeetingCapture = vi.fn()
   const setMeetingCaptureState = vi.fn()
   const meetingPostProcessor: MeetingPostProcessor = {
     process: vi.fn(async () => ({
@@ -117,6 +120,7 @@ function setupPipeline(): {
     meetingPostProcessor,
     showMeetingCapture,
     stopMeetingCapture,
+    hideMeetingCapture,
     setMeetingCaptureState
   })
 
@@ -129,8 +133,31 @@ function setupPipeline(): {
     meetingPostProcessor,
     showMeetingCapture,
     stopMeetingCapture,
+    hideMeetingCapture,
     setMeetingCaptureState
   }
+}
+
+async function flushPromises(): Promise<void> {
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
+async function waitForMicrotasks(assertion: () => void): Promise<void> {
+  let lastError: unknown
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      assertion()
+      return
+    } catch (error) {
+      lastError = error
+      await Promise.resolve()
+    }
+  }
+
+  throw lastError
 }
 
 describe('createMeetingCapturePipeline', () => {
@@ -239,15 +266,17 @@ describe('createMeetingCapturePipeline', () => {
     expect(microphone.client.sendAudioChunk).not.toHaveBeenCalled()
   })
 
-  it('waits for both transcription finish and mixed audio before completing', async () => {
-    const { pipeline, microphone, system, store, stopMeetingCapture } = setupPipeline()
+  it('hides the capture window immediately and waits for transcript plus audio before completing', async () => {
+    const { pipeline, microphone, system, store, stopMeetingCapture, hideMeetingCapture } =
+      setupPipeline()
     const started = pipeline.beginMeetingCapture()
     microphone.started.resolve()
     system.started.resolve()
     await started
 
-    const finishing = pipeline.finishMeetingCapture('shortcut')
+    await pipeline.finishMeetingCapture('shortcut')
     expect(stopMeetingCapture).toHaveBeenCalledOnce()
+    expect(hideMeetingCapture).toHaveBeenCalledOnce()
     expect(microphone.client.finish).toHaveBeenCalledOnce()
     expect(system.client.finish).toHaveBeenCalledOnce()
 
@@ -263,13 +292,14 @@ describe('createMeetingCapturePipeline', () => {
 
     microphone.finished.resolve()
     system.finished.resolve()
-    await finishing
+    await waitForMicrotasks(() => {
+      expect(store.updateMeeting).toHaveBeenCalledWith(
+        'meeting-1',
+        expect.objectContaining({ status: 'completed', llmProcessing: 'completed' })
+      )
+    })
 
     expect(store.saveMixedAudio).toHaveBeenCalledOnce()
-    expect(store.updateMeeting).toHaveBeenCalledWith(
-      'meeting-1',
-      expect.objectContaining({ status: 'completed', llmProcessing: 'completed' })
-    )
     expect(pipeline.isMeetingCaptureBusy()).toBe(false)
   })
 
@@ -280,10 +310,10 @@ describe('createMeetingCapturePipeline', () => {
     system.started.resolve()
     await started
 
-    const finishing = pipeline.finishMeetingCapture('shortcut')
+    await pipeline.finishMeetingCapture('shortcut')
     microphone.finished.resolve()
     system.finished.resolve()
-    await finishing
+    await flushPromises()
 
     expect(meetingPostProcessor.process).not.toHaveBeenCalled()
 
@@ -293,7 +323,9 @@ describe('createMeetingCapturePipeline', () => {
       durationMs: 1000
     })
 
-    expect(meetingPostProcessor.process).toHaveBeenCalledOnce()
+    await waitForMicrotasks(() => {
+      expect(meetingPostProcessor.process).toHaveBeenCalledOnce()
+    })
   })
 
   it('stores post-processing output after raw transcript and audio are saved', async () => {
@@ -311,7 +343,7 @@ describe('createMeetingCapturePipeline', () => {
       final: true
     })
 
-    const finishing = pipeline.finishMeetingCapture('shortcut')
+    await pipeline.finishMeetingCapture('shortcut')
     await pipeline.receiveMixedAudio({
       mimeType: 'audio/webm',
       buffer: new Uint8Array([1, 2, 3]),
@@ -319,13 +351,14 @@ describe('createMeetingCapturePipeline', () => {
     })
     microphone.finished.resolve()
     system.finished.resolve()
-    await finishing
+    await waitForMicrotasks(() => {
+      expect(meetingPostProcessor.process).toHaveBeenCalledWith(
+        expect.objectContaining({
+          segments: [expect.objectContaining({ text: 'Ship it' })]
+        })
+      )
+    })
 
-    expect(meetingPostProcessor.process).toHaveBeenCalledWith(
-      expect.objectContaining({
-        segments: [expect.objectContaining({ text: 'Ship it' })]
-      })
-    )
     expect(store.updateMeeting).toHaveBeenCalledWith(
       'meeting-1',
       expect.objectContaining({
@@ -346,7 +379,7 @@ describe('createMeetingCapturePipeline', () => {
     system.started.resolve()
     await started
 
-    const finishing = pipeline.finishMeetingCapture('shortcut')
+    await pipeline.finishMeetingCapture('shortcut')
     await pipeline.receiveMixedAudio({
       mimeType: 'audio/webm',
       buffer: new Uint8Array([1, 2, 3]),
@@ -354,17 +387,93 @@ describe('createMeetingCapturePipeline', () => {
     })
     microphone.finished.resolve()
     system.finished.resolve()
-    await finishing
+    await waitForMicrotasks(() => {
+      expect(store.updateMeeting).toHaveBeenCalledWith(
+        'meeting-1',
+        expect.objectContaining({
+          status: 'completed',
+          llmProcessing: 'failed',
+          errorDetail: 'provider down'
+        })
+      )
+    })
 
     expect(store.saveMixedAudio).toHaveBeenCalledOnce()
-    expect(store.updateMeeting).toHaveBeenCalledWith(
-      'meeting-1',
-      expect.objectContaining({
-        status: 'completed',
-        llmProcessing: 'failed',
-        errorDetail: 'provider down'
-      })
+    expect(pipeline.isMeetingCaptureBusy()).toBe(false)
+  })
+
+  it('persists raw capture completion before background post-processing finishes', async () => {
+    const { pipeline, microphone, system, store, meetingPostProcessor } = setupPipeline()
+    const postProcessing = createDeferred()
+    vi.mocked(meetingPostProcessor.process).mockReturnValueOnce(
+      postProcessing.promise.then(() => ({
+        title: 'Processed meeting',
+        summary: 'Meeting summary',
+        polishedTranscript: 'You: Polished transcript.'
+      }))
     )
+    const started = pipeline.beginMeetingCapture()
+    microphone.started.resolve()
+    system.started.resolve()
+    await started
+
+    await pipeline.finishMeetingCapture('shortcut')
+    await pipeline.receiveMixedAudio({
+      mimeType: 'audio/webm',
+      buffer: new Uint8Array([1, 2, 3]),
+      durationMs: 1000
+    })
+    microphone.finished.resolve()
+    system.finished.resolve()
+    await waitForMicrotasks(() => {
+      expect(store.updateMeeting).toHaveBeenCalledWith(
+        'meeting-1',
+        expect.objectContaining({
+          status: 'completed',
+          llmProcessing: 'pending'
+        })
+      )
+    })
+
+    expect(pipeline.isMeetingCaptureBusy()).toBe(false)
+
+    postProcessing.resolve()
+    await waitForMicrotasks(() => {
+      expect(store.updateMeeting).toHaveBeenCalledWith(
+        'meeting-1',
+        expect.objectContaining({ status: 'completed', llmProcessing: 'completed' })
+      )
+    })
+  })
+
+  it('keeps partial transcript and audio when realtime transcription finish fails', async () => {
+    const { pipeline, microphone, system, store } = setupPipeline()
+    const started = pipeline.beginMeetingCapture()
+    microphone.started.resolve()
+    system.started.resolve()
+    await started
+
+    await pipeline.finishMeetingCapture('shortcut')
+    await pipeline.receiveMixedAudio({
+      mimeType: 'audio/webm',
+      buffer: new Uint8Array([1, 2, 3]),
+      durationMs: 1000
+    })
+    microphone.finished.resolve()
+    system.finished.reject(new Error('socket closed'))
+    await waitForMicrotasks(() => {
+      expect(system.client.abort).toHaveBeenCalledWith('socket closed')
+      expect(store.updateMeeting).toHaveBeenCalledWith(
+        'meeting-1',
+        expect.objectContaining({
+          status: 'completed',
+          llmProcessing: 'pending',
+          errorDetail: 'socket closed'
+        })
+      )
+    })
+
+    expect(store.saveMixedAudio).toHaveBeenCalledOnce()
     expect(pipeline.isMeetingCaptureBusy()).toBe(false)
   })
 

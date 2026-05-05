@@ -143,6 +143,7 @@ const noopMainAppState = {
     downloadProgressPercent: null,
     message: 'Automatic updates are only available in packaged builds.'
   },
+  dictationFallback: null,
   history: [],
   questionHistory: []
 }
@@ -196,6 +197,7 @@ const noopApi: TiaApi = {
   getMeetingHistoryPage: async () => ({ items: [], totalCount: 0 }),
   getMeetingDetail: async () => null,
   getHistoryEntryDebug: async () => null,
+  copyHistoryText: async () => undefined,
   retryHistoryEntry: async () => undefined,
   startDictation: async () => undefined,
   stopDictation: async () => undefined,
@@ -397,6 +399,12 @@ export function getHistoryEntryDebug(
   entryId: Parameters<TiaApi['getHistoryEntryDebug']>[0]
 ): ReturnType<TiaApi['getHistoryEntryDebug']> {
   return getApi().getHistoryEntryDebug(entryId)
+}
+
+export function copyHistoryText(
+  entryId: Parameters<TiaApi['copyHistoryText']>[0]
+): ReturnType<TiaApi['copyHistoryText']> {
+  return getApi().copyHistoryText(entryId)
 }
 
 export function retryHistoryEntry(entryId: string): ReturnType<TiaApi['retryHistoryEntry']> {

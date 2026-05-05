@@ -39,6 +39,7 @@ export function registerMainIpc(input: {
   getHistoryPage: (input?: { offset?: number; limit?: number }) => unknown
   getQuestionHistoryPage: (input?: { offset?: number; limit?: number }) => unknown
   getHistoryEntryDebug: (entryId: string) => Promise<unknown>
+  copyHistoryText: (entryId: string) => Promise<void>
   finishRecording: (artifact: RecordingArtifact) => Promise<void>
   finishQuestionRecording: (artifact: RecordingArtifact) => Promise<void>
   sendMeetingPcmChunk: (input: MeetingPcmChunkInput) => void
@@ -111,6 +112,7 @@ export function registerMainIpc(input: {
   ipcMain.removeHandler(IPC_CHANNELS.app.getHistoryPage)
   ipcMain.removeHandler(IPC_CHANNELS.app.getQuestionHistoryPage)
   ipcMain.removeHandler(IPC_CHANNELS.app.getHistoryEntryDebug)
+  ipcMain.removeHandler(IPC_CHANNELS.app.copyHistoryText)
   ipcMain.removeHandler(IPC_CHANNELS.recording.complete)
   ipcMain.removeHandler(IPC_CHANNELS.recording.failed)
   ipcMain.removeHandler(IPC_CHANNELS.questionRecording.complete)
@@ -215,6 +217,13 @@ export function registerMainIpc(input: {
     }
 
     return input.getHistoryEntryDebug(entryId)
+  })
+  ipcMain.handle(IPC_CHANNELS.app.copyHistoryText, async (_event, entryId: unknown) => {
+    if (typeof entryId !== 'string' || entryId.trim() === '') {
+      throw new Error('A valid history item is required.')
+    }
+
+    await input.copyHistoryText(entryId)
   })
   ipcMain.handle(IPC_CHANNELS.recording.complete, async (_event, artifact: RecordingArtifact) => {
     await input.finishRecording({

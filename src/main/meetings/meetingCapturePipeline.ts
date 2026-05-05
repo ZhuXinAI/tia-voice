@@ -15,6 +15,8 @@ import type { MeetingCaptureState } from '../windows/windowManager'
 
 type MeetingCapturePipelineState = 'idle' | 'starting' | 'recording' | 'processing'
 
+const DEFAULT_TRANSCRIPTION_FINISH_TIMEOUT_MS = 30_000
+
 type ActiveMeeting = {
   record: MeetingCaptureRecord
   startedAt: number
@@ -23,6 +25,7 @@ type ActiveMeeting = {
   transcriptionFinished: boolean
   mixedAudioSaved: boolean
   finalizing: boolean
+  captureWarning: string | null
 }
 
 export type MeetingCapturePipeline = {
@@ -43,12 +46,16 @@ export function createMeetingCapturePipeline(dependencies: {
   }): GummyRealtimeTranscriptionClient
   publishSystemLiveCaption?: (update: GummyTranscriptUpdate) => void
   meetingPostProcessor: MeetingPostProcessor
+  transcriptionFinishTimeoutMs?: number
   showMeetingCapture(command: { type: 'start'; deviceId?: string | null }): void
   stopMeetingCapture(): void
+  hideMeetingCapture(): void
   setMeetingCaptureState(state: MeetingCaptureState): void
 }): MeetingCapturePipeline {
   let state: MeetingCapturePipelineState = 'idle'
   let activeMeeting: ActiveMeeting | null = null
+  const transcriptionFinishTimeoutMs =
+    dependencies.transcriptionFinishTimeoutMs ?? DEFAULT_TRANSCRIPTION_FINISH_TIMEOUT_MS
 
   function getSpeaker(streamId: MeetingStreamId): MeetingTranscriptSegment['speaker'] {
     return streamId === 'microphone' ? 'you' : 'others'
@@ -87,6 +94,29 @@ export function createMeetingCapturePipeline(dependencies: {
         createdAt: segment.createdAt
       })),
       errorDetail
+    })
+  }
+
+  function getErrorDetail(error: unknown, fallback: string): string {
+    return error instanceof Error ? error.message : fallback
+  }
+
+  function joinDetails(details: Array<string | null | undefined>): string | undefined {
+    const filtered = details.filter((detail): detail is string => Boolean(detail?.trim()))
+    return filtered.length > 0 ? filtered.join(' ') : undefined
+  }
+
+  function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+    let timeout: NodeJS.Timeout | null = null
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => reject(new Error(message)), timeoutMs)
+      timeout.unref?.()
+    })
+
+    return Promise.race([promise, timeoutPromise]).finally(() => {
+      if (timeout) {
+        clearTimeout(timeout)
+      }
     })
   }
 
@@ -132,7 +162,68 @@ export function createMeetingCapturePipeline(dependencies: {
     publishState(state === 'processing' ? 'processing' : 'recording')
   }
 
-  async function maybeFinalizeActiveMeeting(): Promise<void> {
+  async function finishStreamTranscription(
+    meeting: ActiveMeeting,
+    streamId: MeetingStreamId
+  ): Promise<string | null> {
+    const label = streamId === 'microphone' ? 'Microphone' : 'System audio'
+
+    try {
+      await withTimeout(
+        meeting.clients[streamId].finish(),
+        transcriptionFinishTimeoutMs,
+        `${label} transcription did not finish in time. Saved the partial transcript.`
+      )
+      return null
+    } catch (error) {
+      const detail = getErrorDetail(
+        error,
+        `${label} transcription failed. Saved the partial transcript.`
+      )
+      meeting.clients[streamId].abort(detail)
+      return detail
+    }
+  }
+
+  function runMeetingPostProcessing(input: {
+    meetingId: string
+    startedAt: number
+    endedAt: number
+    captureWarning: string | null
+  }): void {
+    void (async () => {
+      const finalSegments = dependencies.meetingStore.getTranscriptSegments(input.meetingId)
+
+      try {
+        const processed = await dependencies.meetingPostProcessor.process({
+          segments: finalSegments,
+          startedAt: input.startedAt,
+          endedAt: input.endedAt
+        })
+        dependencies.meetingStore.updateMeeting(input.meetingId, {
+          status: 'completed',
+          llmProcessing: 'completed',
+          title: processed.title,
+          summary: processed.summary,
+          polishedTranscript: processed.polishedTranscript,
+          errorDetail: input.captureWarning ?? undefined
+        })
+      } catch (error) {
+        const detail = getErrorDetail(error, 'Meeting post-processing failed.')
+        dependencies.meetingStore.updateMeeting(input.meetingId, {
+          status: 'completed',
+          llmProcessing: 'failed',
+          errorDetail: joinDetails([input.captureWarning, detail])
+        })
+        logDebug('meeting-capture', 'Meeting post-processing failed', {
+          meetingId: input.meetingId,
+          error
+        })
+      }
+    })()
+  }
+
+  function maybeFinalizeActiveMeeting(): void {
     const meeting = activeMeeting
     if (
       !meeting ||
@@ -145,43 +236,26 @@ export function createMeetingCapturePipeline(dependencies: {
 
     meeting.finalizing = true
     const endedAt = Date.now()
-    const finalSegments = dependencies.meetingStore.getTranscriptSegments(meeting.record.id)
+    const meetingId = meeting.record.id
+    const captureWarning = meeting.captureWarning
 
-    try {
-      const processed = await dependencies.meetingPostProcessor.process({
-        segments: finalSegments,
-        startedAt: meeting.startedAt,
-        endedAt
-      })
-      dependencies.meetingStore.updateMeeting(meeting.record.id, {
-        endedAt,
-        durationMs: endedAt - meeting.startedAt,
-        status: 'completed',
-        llmProcessing: 'completed',
-        title: processed.title,
-        summary: processed.summary,
-        polishedTranscript: processed.polishedTranscript,
-        errorDetail: undefined
-      })
-      publishState('completed')
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Meeting post-processing failed.'
-      dependencies.meetingStore.updateMeeting(meeting.record.id, {
-        endedAt,
-        durationMs: endedAt - meeting.startedAt,
-        status: 'completed',
-        llmProcessing: 'failed',
-        errorDetail: detail
-      })
-      logDebug('meeting-capture', 'Meeting post-processing failed', {
-        meetingId: meeting.record.id,
-        error
-      })
-      publishState('completed', detail)
-    } finally {
-      state = 'idle'
-      activeMeeting = null
-    }
+    dependencies.meetingStore.updateMeeting(meetingId, {
+      endedAt,
+      durationMs: endedAt - meeting.startedAt,
+      status: 'completed',
+      llmProcessing: 'pending',
+      errorDetail: captureWarning ?? undefined
+    })
+
+    state = 'idle'
+    activeMeeting = null
+    publishState('idle')
+    runMeetingPostProcessing({
+      meetingId,
+      startedAt: meeting.startedAt,
+      endedAt,
+      captureWarning
+    })
   }
 
   function failActiveMeeting(detail: string): void {
@@ -230,7 +304,8 @@ export function createMeetingCapturePipeline(dependencies: {
         transcriptSegments: [],
         transcriptionFinished: false,
         mixedAudioSaved: false,
-        finalizing: false
+        finalizing: false,
+        captureWarning: null
       }
       publishState('starting')
 
@@ -278,17 +353,29 @@ export function createMeetingCapturePipeline(dependencies: {
       dependencies.meetingStore.updateMeeting(activeMeeting.record.id, { status: 'processing' })
       publishState('processing')
       dependencies.stopMeetingCapture()
+      dependencies.hideMeetingCapture()
 
-      try {
-        await Promise.all([
-          activeMeeting.clients.microphone.finish(),
-          activeMeeting.clients.system.finish()
+      const meeting = activeMeeting
+      void (async () => {
+        const warnings = await Promise.all([
+          finishStreamTranscription(meeting, 'microphone'),
+          finishStreamTranscription(meeting, 'system')
         ])
-        activeMeeting.transcriptionFinished = true
-        await maybeFinalizeActiveMeeting()
-      } catch (error) {
-        failActiveMeeting(error instanceof Error ? error.message : 'Meeting transcription failed.')
-      }
+
+        if (activeMeeting !== meeting) {
+          return
+        }
+
+        meeting.captureWarning = joinDetails(warnings) ?? null
+        if (meeting.captureWarning) {
+          logDebug('meeting-capture', 'Meeting transcription finished with warnings', {
+            meetingId: meeting.record.id,
+            warning: meeting.captureWarning
+          })
+        }
+        meeting.transcriptionFinished = true
+        maybeFinalizeActiveMeeting()
+      })()
     },
 
     async receiveMixedAudio(artifact) {
@@ -298,7 +385,7 @@ export function createMeetingCapturePipeline(dependencies: {
 
       await dependencies.meetingStore.saveMixedAudio(activeMeeting.record.id, artifact)
       activeMeeting.mixedAudioSaved = true
-      await maybeFinalizeActiveMeeting()
+      maybeFinalizeActiveMeeting()
     },
 
     failMeetingCapture(detail) {

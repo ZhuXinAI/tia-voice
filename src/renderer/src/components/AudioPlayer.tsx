@@ -64,6 +64,14 @@ type AudioPlayerProps = {
   audio: NonNullable<TiaHistoryDebugEntry['audio']> | MeetingAudioPayload
 }
 
+function getAudioBytes(audio: AudioPlayerProps['audio']): Uint8Array | null {
+  return 'bytes' in audio ? audio.bytes : null
+}
+
+function getAudioUrl(audio: AudioPlayerProps['audio']): string | null {
+  return 'url' in audio ? audio.url : null
+}
+
 export function AudioPlayer(props: AudioPlayerProps): React.JSX.Element {
   const { audio } = props
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -72,25 +80,42 @@ export function AudioPlayer(props: AudioPlayerProps): React.JSX.Element {
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(audio.durationMs / 1000)
   const [peaks, setPeaks] = useState<number[]>(FALLBACK_PEAKS)
+  const sourceUrl = getAudioUrl(audio)
+  const audioBytes = getAudioBytes(audio)
 
   useEffect(() => {
-    const audioBytes = new Uint8Array(audio.bytes)
-    const blob = new Blob([audioBytes.buffer.slice(0)], { type: audio.mimeType })
+    if (sourceUrl) {
+      setAudioUrl(sourceUrl)
+      return
+    }
+
+    if (!audioBytes) {
+      setAudioUrl(null)
+      return
+    }
+
+    const bytes = new Uint8Array(audioBytes)
+    const blob = new Blob([bytes.buffer.slice(0)], { type: audio.mimeType })
     const nextAudioUrl = URL.createObjectURL(blob)
     setAudioUrl(nextAudioUrl)
 
     return () => {
       URL.revokeObjectURL(nextAudioUrl)
     }
-  }, [audio])
+  }, [audio.mimeType, audioBytes, sourceUrl])
 
   useEffect(() => {
     setDuration(audio.durationMs / 1000)
     setCurrentTime(0)
     setIsPlaying(false)
-  }, [audio.durationMs, audio.mimeType, audio.bytes])
+  }, [audio.durationMs, audio.mimeType, audioBytes, sourceUrl])
 
   useEffect(() => {
+    if (!audioBytes) {
+      setPeaks(FALLBACK_PEAKS)
+      return
+    }
+
     const AudioContextClass = window.AudioContext
     if (!AudioContextClass) {
       setPeaks(FALLBACK_PEAKS)
@@ -103,7 +128,7 @@ export function AudioPlayer(props: AudioPlayerProps): React.JSX.Element {
     void (async () => {
       try {
         const decoded = await audioContext.decodeAudioData(
-          new Uint8Array(audio.bytes).slice().buffer
+          new Uint8Array(audioBytes).slice().buffer
         )
         if (!cancelled) {
           setPeaks(createWaveformPeaks(decoded, PEAK_COUNT))
@@ -121,7 +146,7 @@ export function AudioPlayer(props: AudioPlayerProps): React.JSX.Element {
       cancelled = true
       void audioContext.close()
     }
-  }, [audio])
+  }, [audioBytes])
 
   useEffect(() => {
     const element = audioRef.current

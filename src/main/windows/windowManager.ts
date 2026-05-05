@@ -381,6 +381,7 @@ export function createWindowManager(input: {
       downloadProgressPercent: null,
       message: null
     },
+    dictationFallback: null,
     history: [],
     questionHistory: []
   }

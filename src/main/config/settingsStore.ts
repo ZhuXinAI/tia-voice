@@ -47,6 +47,9 @@ export type HistoryEntry = {
   cleanedText: string
   status: 'pending' | 'completed' | 'failed'
   llmProcessing: 'pending' | 'completed' | 'skipped' | 'failed'
+  injectionStatus?: HistoryInjectionStatus
+  injectionReason?: HistoryInjectionReason
+  injectionDetail?: string
   errorDetail?: string
   audio?: {
     fileName: string
@@ -55,6 +58,9 @@ export type HistoryEntry = {
     sizeBytes: number
   }
 }
+
+export type HistoryInjectionStatus = 'pasted' | 'needs-copy'
+export type HistoryInjectionReason = 'input-not-focused' | 'paste-failed'
 
 export type QuestionHistoryEntry = {
   id: string
@@ -242,6 +248,14 @@ function normalizeHistoryEntry(entry: Partial<HistoryEntry> & { id: string }): H
     entry.status === 'pending' || entry.status === 'completed' || entry.status === 'failed'
       ? entry.status
       : 'completed'
+  const injectionStatus =
+    entry.injectionStatus === 'pasted' || entry.injectionStatus === 'needs-copy'
+      ? entry.injectionStatus
+      : undefined
+  const injectionReason =
+    entry.injectionReason === 'input-not-focused' || entry.injectionReason === 'paste-failed'
+      ? entry.injectionReason
+      : undefined
 
   return {
     id: entry.id,
@@ -263,6 +277,9 @@ function normalizeHistoryEntry(entry: Partial<HistoryEntry> & { id: string }): H
           : status === 'failed'
             ? 'failed'
             : 'completed',
+    injectionStatus,
+    injectionReason,
+    injectionDetail: typeof entry.injectionDetail === 'string' ? entry.injectionDetail : undefined,
     errorDetail: typeof entry.errorDetail === 'string' ? entry.errorDetail : undefined,
     audio:
       entry.audio &&

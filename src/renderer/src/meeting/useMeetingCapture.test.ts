@@ -143,7 +143,11 @@ describe('useMeetingCapture', () => {
       audio: {
         deviceId: {
           exact: 'mic-1'
-        }
+        },
+        echoCancellation: { ideal: true },
+        noiseSuppression: { ideal: true },
+        autoGainControl: { ideal: true },
+        channelCount: { ideal: 1 }
       }
     })
     expect(getDisplayMedia).toHaveBeenCalledWith({
@@ -190,6 +194,62 @@ describe('useMeetingCapture', () => {
     expect(microphoneAudioTrack.stop).toHaveBeenCalledOnce()
     expect(systemAudioTrack.stop).toHaveBeenCalledOnce()
     expect(result.current.status).toBe('idle')
+  })
+
+  it('suppresses likely speaker bleed from the microphone transcription stream', async () => {
+    vi.stubGlobal('MediaRecorder', FakeMediaRecorder)
+
+    const microphoneStream = new FakeMediaStream([new FakeTrack()])
+    const systemStream = new FakeMediaStream([new FakeTrack()], [new FakeTrack()])
+    const audioContext = new FakeAudioContext()
+    const sendPcmChunk = vi.fn()
+    const dependencies: MeetingCaptureDependencies = {
+      mediaDevices: {
+        getUserMedia: vi.fn().mockResolvedValue(microphoneStream),
+        getDisplayMedia: vi.fn().mockResolvedValue(systemStream)
+      } as unknown as MeetingCaptureDependencies['mediaDevices'],
+      createAudioContext: () => audioContext as unknown as AudioContext,
+      createMediaRecorder: () => new FakeMediaRecorder() as unknown as MediaRecorder,
+      now: vi.fn(() => 2000),
+      sendPcmChunk,
+      submitMixedAudio: vi.fn().mockResolvedValue(undefined)
+    }
+
+    const { result } = renderHook(() => useMeetingCapture(dependencies))
+
+    await act(async () => {
+      await expect(result.current.start()).resolves.toBe(true)
+    })
+
+    act(() => {
+      audioContext.processors[1].emit(new Float32Array(4800).fill(0.6))
+      audioContext.processors[0].emit(new Float32Array(4800).fill(0.03))
+    })
+
+    expect(sendPcmChunk).toHaveBeenCalledWith(
+      expect.objectContaining({
+        streamId: 'system',
+        chunk: expect.any(Uint8Array)
+      })
+    )
+    const suppressedMicrophoneCall = sendPcmChunk.mock.calls.find(
+      ([payload]) => payload.streamId === 'microphone'
+    )?.[0]
+    expect(suppressedMicrophoneCall?.chunk.every((byte) => byte === 0)).toBe(true)
+
+    act(() => {
+      audioContext.processors[0].emit(new Float32Array(4800).fill(0.5))
+    })
+
+    const microphoneCalls = sendPcmChunk.mock.calls.filter(
+      ([payload]) => payload.streamId === 'microphone'
+    )
+    expect(microphoneCalls).toHaveLength(2)
+    expect(microphoneCalls[1]?.[0].chunk.some((byte) => byte !== 0)).toBe(true)
+
+    await act(async () => {
+      await result.current.stop()
+    })
   })
 
   it('reports a blocking error when system audio has no audio track', async () => {

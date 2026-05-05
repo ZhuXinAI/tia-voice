@@ -21,6 +21,10 @@ export type MeetingAudioAsset = {
   sizeBytes: number
 }
 
+export type MeetingAudioFile = MeetingAudioAsset & {
+  filePath: string
+}
+
 export type MeetingCaptureRecord = {
   id: string
   createdAt: number
@@ -67,6 +71,7 @@ export type MeetingStore = {
   ): MeetingTranscriptSegment | null
   getTranscriptSegments(meetingId: string): MeetingTranscriptSegment[]
   saveMixedAudio(meetingId: string, input: SaveMeetingAudioInput): Promise<MeetingAudioAsset | null>
+  getMixedAudioFile(meetingId: string): MeetingAudioFile | null
   readMixedAudio(meetingId: string): Promise<(MeetingAudioAsset & { buffer: Uint8Array }) | null>
   listRecentMeetings(input?: MeetingPageInput): MeetingPage
 }

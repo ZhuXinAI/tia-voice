@@ -1,5 +1,10 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 
+import {
+  calculateRms,
+  createEchoSuppressionState,
+  shouldSuppressMicrophoneEcho
+} from './audio/echoSuppression'
 import { encodeChannelsToPcm16Chunks } from './audio/pcmEncoder'
 
 export type MeetingStreamId = 'microphone' | 'system'
@@ -91,6 +96,24 @@ function resolveMixedAudioMimeType(): string {
   return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate)) ?? ''
 }
 
+function buildMicrophoneCaptureConstraints(deviceId?: string | null): MediaStreamConstraints {
+  return {
+    audio: {
+      ...(deviceId
+        ? {
+            deviceId: {
+              exact: deviceId
+            }
+          }
+        : {}),
+      echoCancellation: { ideal: true },
+      noiseSuppression: { ideal: true },
+      autoGainControl: { ideal: true },
+      channelCount: { ideal: 1 }
+    }
+  }
+}
+
 function cloneChannelData(inputBuffer: AudioBuffer): Float32Array[] {
   return new Array(inputBuffer.numberOfChannels).fill(null).map((_, index) => {
     return new Float32Array(inputBuffer.getChannelData(index))
@@ -121,6 +144,7 @@ export function useMeetingCapture(
   const statusRef = useRef<MeetingCaptureStatus>('idle')
   const timerRef = useRef<number | null>(null)
   const chunksRef = useRef<Blob[]>([])
+  const echoSuppressionRef = useRef(createEchoSuppressionState())
   const mimeType = useMemo(resolveMixedAudioMimeType, [])
 
   const now = dependencies.now ?? Date.now
@@ -153,6 +177,7 @@ export function useMeetingCapture(
     stopStream(graph.microphoneStream)
     stopStream(graph.systemStream)
     void graph.audioContext.close()
+    echoSuppressionRef.current = createEchoSuppressionState()
   }, [])
 
   const markStreamChunk = useCallback((streamId: MeetingStreamId, capturedAt: number) => {
@@ -175,20 +200,36 @@ export function useMeetingCapture(
       const processor = input.audioContext.createScriptProcessor(4096, 2, 1)
       processor.onaudioprocess = (event) => {
         const capturedAt = now()
+        const channels = cloneChannelData(event.inputBuffer)
+        const rms = calculateRms(channels)
+
+        if (input.streamId === 'system') {
+          echoSuppressionRef.current.lastSystemAt = capturedAt
+          echoSuppressionRef.current.lastSystemRms = rms
+        }
+
+        const suppressMicrophone =
+          input.streamId === 'microphone' &&
+          shouldSuppressMicrophoneEcho({
+            capturedAt,
+            microphoneRms: rms,
+            state: echoSuppressionRef.current
+          })
+
         const chunks = encodeChannelsToPcm16Chunks({
-          channels: cloneChannelData(event.inputBuffer),
+          channels,
           sourceSampleRate: input.audioContext.sampleRate
         })
 
         for (const chunk of chunks) {
           void dependencies.sendPcmChunk?.({
             streamId: input.streamId,
-            chunk,
+            chunk: suppressMicrophone ? new Uint8Array(chunk.byteLength) : chunk,
             capturedAt
           })
         }
 
-        if (chunks.length > 0) {
+        if (chunks.length > 0 && !suppressMicrophone) {
           markStreamChunk(input.streamId, capturedAt)
         }
       }
@@ -238,15 +279,7 @@ export function useMeetingCapture(
 
       try {
         microphoneStream = await mediaDevices.getUserMedia(
-          input.deviceId
-            ? {
-                audio: {
-                  deviceId: {
-                    exact: input.deviceId
-                  }
-                }
-              }
-            : { audio: true }
+          buildMicrophoneCaptureConstraints(input.deviceId)
         )
 
         systemStream = await mediaDevices.getDisplayMedia({

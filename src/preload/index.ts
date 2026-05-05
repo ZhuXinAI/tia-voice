@@ -147,6 +147,9 @@ export type TiaHistoryDebugEntry = {
   llmProcessing: 'pending' | 'completed' | 'skipped' | 'failed'
   transcript: string
   cleanedText: string
+  injectionStatus?: MainAppState['history'][number]['injectionStatus']
+  injectionReason?: MainAppState['history'][number]['injectionReason']
+  injectionDetail?: string
   errorDetail?: string
   audio?: {
     bytes: Uint8Array
@@ -190,7 +193,7 @@ export type MeetingTranscriptSegmentPayload = {
 }
 
 export type MeetingAudioPayload = {
-  bytes: Uint8Array
+  url: string
   mimeType: string
   durationMs: number
   sizeBytes: number
@@ -269,14 +272,25 @@ export type MainAppState = {
     microphone: PermissionStatePayload
   }
   autoUpdate: AutoUpdateStatePayload
+  dictationFallback: {
+    historyId: string
+    createdAt: number
+    preview: string
+    reason: 'input-not-focused' | 'paste-failed'
+    detail?: string
+  } | null
   history: Array<{
     id: string
     createdAt: number
     title: string
     preview: string
     status: 'pending' | 'completed' | 'failed'
+    injectionStatus?: 'pasted' | 'needs-copy'
+    injectionReason?: 'input-not-focused' | 'paste-failed'
+    injectionDetail?: string
     errorDetail?: string
     hasAudio: boolean
+    canCopy: boolean
   }>
   questionHistory: Array<{
     id: string
@@ -327,6 +341,7 @@ export type TiaApi = {
   }): Promise<MeetingHistoryPagePayload>
   getMeetingDetail(meetingId: string): Promise<MeetingDetailPayload | null>
   getHistoryEntryDebug(entryId: string): Promise<TiaHistoryDebugEntry | null>
+  copyHistoryText(entryId: string): Promise<void>
   retryHistoryEntry(entryId: string): Promise<void>
   startDictation(source?: 'global' | 'onboarding'): Promise<void>
   stopDictation(source?: 'global' | 'onboarding'): Promise<void>
@@ -413,6 +428,7 @@ const APP_STATE_REQUEST_CHANNEL = 'app:get-state'
 const APP_GET_HISTORY_PAGE_CHANNEL = IPC_CHANNELS.app.getHistoryPage
 const APP_GET_QUESTION_HISTORY_PAGE_CHANNEL = IPC_CHANNELS.app.getQuestionHistoryPage
 const APP_GET_HISTORY_ENTRY_DEBUG_CHANNEL = IPC_CHANNELS.app.getHistoryEntryDebug
+const APP_COPY_HISTORY_TEXT_CHANNEL = IPC_CHANNELS.app.copyHistoryText
 const APP_RETRY_HISTORY_CHANNEL = 'app:retry-history'
 const APP_START_DICTATION_CHANNEL = IPC_CHANNELS.app.startDictation
 const APP_STOP_DICTATION_CHANNEL = IPC_CHANNELS.app.stopDictation
@@ -582,6 +598,9 @@ const api: TiaApi = {
   },
   getHistoryEntryDebug(entryId) {
     return ipcRenderer.invoke(APP_GET_HISTORY_ENTRY_DEBUG_CHANNEL, entryId)
+  },
+  copyHistoryText(entryId) {
+    return ipcRenderer.invoke(APP_COPY_HISTORY_TEXT_CHANNEL, entryId)
   },
   retryHistoryEntry(entryId) {
     return ipcRenderer.invoke(APP_RETRY_HISTORY_CHANNEL, entryId)

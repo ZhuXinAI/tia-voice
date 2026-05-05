@@ -19,6 +19,7 @@ type HomeRouteProps = {
   retrying: Record<string, boolean>
   onOpenDetails: (entry: MainAppHistoryEntry) => void
   onShowAll: () => void
+  onCopy: (entryId: string) => void
   onRetry: (entryId: string) => Promise<void>
 }
 
@@ -31,6 +32,7 @@ export function HomeRoute(props: HomeRouteProps): React.JSX.Element {
     retrying,
     onOpenDetails,
     onShowAll,
+    onCopy,
     onRetry
   } = props
   const { t, formatNumber } = useI18n()
@@ -77,6 +79,7 @@ export function HomeRoute(props: HomeRouteProps): React.JSX.Element {
             history={history}
             retrying={retrying}
             onOpenDetails={onOpenDetails}
+            onCopy={onCopy}
             onRetry={onRetry}
           />
 

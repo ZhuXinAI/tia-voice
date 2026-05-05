@@ -136,6 +136,7 @@ const baseState = {
     downloadProgressPercent: null,
     message: null
   },
+  dictationFallback: null,
   history: [],
   questionHistory: []
 }
@@ -187,6 +188,7 @@ const {
   getMeetingHistoryPageMock,
   getMeetingDetailMock,
   getHistoryEntryDebugMock,
+  copyHistoryTextMock,
   getMainAppStateMock,
   subscribeToAppStateMock,
   retryHistoryEntryMock,
@@ -217,6 +219,7 @@ const {
   getMeetingHistoryPageMock: vi.fn(),
   getMeetingDetailMock: vi.fn(),
   getHistoryEntryDebugMock: vi.fn(),
+  copyHistoryTextMock: vi.fn(),
   getMainAppStateMock: vi.fn(),
   subscribeToAppStateMock: vi.fn(),
   retryHistoryEntryMock: vi.fn(),
@@ -252,6 +255,7 @@ vi.mock('../lib/ipc', () => ({
   getMeetingHistoryPage: getMeetingHistoryPageMock,
   getMeetingDetail: getMeetingDetailMock,
   getHistoryEntryDebug: getHistoryEntryDebugMock,
+  copyHistoryText: copyHistoryTextMock,
   getMainAppState: getMainAppStateMock,
   resetOnboarding: resetOnboardingMock,
   retryHistoryEntry: retryHistoryEntryMock,
@@ -300,6 +304,7 @@ describe('MainAppWindow', () => {
     getMeetingHistoryPageMock.mockReset()
     getMeetingDetailMock.mockReset()
     getHistoryEntryDebugMock.mockReset()
+    copyHistoryTextMock.mockReset()
     subscribeToAppStateMock.mockReset()
     retryHistoryEntryMock.mockReset()
     saveDictionaryEntryMock.mockReset()
@@ -337,6 +342,7 @@ describe('MainAppWindow', () => {
     })
     getMeetingDetailMock.mockResolvedValue(null)
     getHistoryEntryDebugMock.mockResolvedValue(null)
+    copyHistoryTextMock.mockResolvedValue(undefined)
     retryHistoryEntryMock.mockResolvedValue(undefined)
     saveDictionaryEntryMock.mockResolvedValue({
       id: 'qwen',
@@ -715,7 +721,7 @@ describe('MainAppWindow', () => {
         }
       ],
       audio: {
-        bytes: new Uint8Array([0, 1, 2, 3]),
+        url: 'tia-meeting-audio://meeting/meeting-1?v=1',
         mimeType: 'audio/webm',
         durationMs: 60_000,
         sizeBytes: 2048
@@ -1002,6 +1008,63 @@ describe('MainAppWindow', () => {
     expect(screen.getByRole('button', { name: /play audio/i })).toBeInTheDocument()
     expect(screen.getByRole('slider', { name: /seek audio/i })).toBeInTheDocument()
     expect(screen.getByTestId('audio-waveform')).toBeInTheDocument()
+  })
+
+  it('copies a saved transcription from history', async () => {
+    getMainAppStateMock.mockResolvedValue({
+      ...configuredState,
+      historySummary: {
+        totalCount: 1,
+        wordsSpoken: 2,
+        averageWpm: null
+      },
+      history: [
+        {
+          id: 'history-1',
+          createdAt: 1,
+          title: 'Voice transcription',
+          preview: 'Processed transcript.',
+          status: 'completed',
+          hasAudio: true,
+          canCopy: true
+        }
+      ]
+    })
+
+    render(<MainAppWindow />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /^copy$/i }))
+
+    await waitFor(() => {
+      expect(copyHistoryTextMock).toHaveBeenCalledWith('history-1')
+    })
+    expect(await screen.findByText('Copied to clipboard.')).toBeInTheDocument()
+  })
+
+  it('shows a copy fallback toast when dictation injection needs manual copy', async () => {
+    getMainAppStateMock.mockResolvedValue({
+      ...configuredState,
+      dictationFallback: {
+        historyId: 'history-1',
+        createdAt: 123,
+        preview: 'Dictated but not inserted.',
+        reason: 'input-not-focused' as const
+      }
+    })
+
+    render(<MainAppWindow />)
+
+    expect(await screen.findByText('Dictation is ready to copy')).toBeInTheDocument()
+    expect(screen.getByText('Dictated but not inserted.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /copy dictated text/i }))
+
+    await waitFor(() => {
+      expect(copyHistoryTextMock).toHaveBeenCalledWith('history-1')
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Dictation is ready to copy')).not.toBeInTheDocument()
+    })
   })
 
   it('shows only the recent history on the home screen and paginates the full history dialog', async () => {

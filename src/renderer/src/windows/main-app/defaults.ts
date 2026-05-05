@@ -130,6 +130,7 @@ export const defaultMainAppState: MainAppState = {
     downloadProgressPercent: null,
     message: 'Automatic updates are only available in packaged builds.'
   },
+  dictationFallback: null,
   history: [],
   questionHistory: []
 }

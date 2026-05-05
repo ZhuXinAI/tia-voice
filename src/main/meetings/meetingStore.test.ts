@@ -95,6 +95,10 @@ describe('createMeetingStore', () => {
     })
     expect(existsSync(join(root, meeting.id, 'audio.webm'))).toBe(true)
     expect(store.getMeeting(meeting.id)?.audio).toEqual(audio)
+    expect(store.getMixedAudioFile(meeting.id)).toEqual({
+      ...audio,
+      filePath: join(root, meeting.id, 'audio.webm')
+    })
   })
 
   it('updates processing fields without losing raw transcript or audio', async () => {

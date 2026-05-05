@@ -7,7 +7,11 @@ import {
 import type { DictionaryEntryRecord } from '../../shared/dictionary'
 import type { LiveCaptionPreferences, LiveCaptionState } from '../../shared/liveCaption'
 import type { TtsStatePayload } from '../../shared/tts'
-import type { QuestionHistoryEntry } from '../config/settingsStore'
+import type {
+  HistoryInjectionReason,
+  HistoryInjectionStatus,
+  QuestionHistoryEntry
+} from '../config/settingsStore'
 
 export const IPC_CHANNELS = {
   recording: {
@@ -62,6 +66,7 @@ export const IPC_CHANNELS = {
     getHistoryPage: 'app:get-history-page',
     getQuestionHistoryPage: 'app:get-question-history-page',
     getHistoryEntryDebug: 'app:get-history-entry-debug',
+    copyHistoryText: 'app:copy-history-text',
     retryHistory: 'app:retry-history',
     startDictation: 'app:start-dictation',
     stopDictation: 'app:stop-dictation',
@@ -200,14 +205,25 @@ export type MainAppStatePayload = {
     microphone: PermissionStatePayload
   }
   autoUpdate: AutoUpdateStatePayload
+  dictationFallback: {
+    historyId: string
+    createdAt: number
+    preview: string
+    reason: HistoryInjectionReason
+    detail?: string
+  } | null
   history: Array<{
     id: string
     createdAt: number
     title: string
     preview: string
     status: 'pending' | 'completed' | 'failed'
+    injectionStatus?: HistoryInjectionStatus
+    injectionReason?: HistoryInjectionReason
+    injectionDetail?: string
     errorDetail?: string
     hasAudio: boolean
+    canCopy: boolean
   }>
   questionHistory: Array<
     Pick<

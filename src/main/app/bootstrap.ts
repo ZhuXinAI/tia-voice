@@ -47,6 +47,11 @@ import type {
 import { getDebugLogPath, logDebug } from '../logging/debugLogger'
 import { createLiveCaptionPipeline } from '../live-caption/liveCaptionPipeline'
 import { createMeetingStore } from '../meetings/meetingStore'
+import {
+  createMeetingAudioUrl,
+  registerMeetingAudioProtocol,
+  registerMeetingAudioProtocolPrivileges
+} from '../meetings/meetingAudioProtocol'
 import { createMeetingCapturePipeline } from '../meetings/meetingCapturePipeline'
 import { createEphemeralSessionStore } from '../orchestration/ephemeralSessionStore'
 import { createQuestionAnswerPipeline } from '../orchestration/questionAnswerPipeline'
@@ -375,17 +380,26 @@ function toHistoryListItem(input: {
   cleanedText: string
   transcript: string
   status: 'pending' | 'completed' | 'failed'
+  injectionStatus?: MainAppStatePayload['history'][number]['injectionStatus']
+  injectionReason?: MainAppStatePayload['history'][number]['injectionReason']
+  injectionDetail?: string
   errorDetail?: string
   audio?: { fileName: string }
 }): MainAppStatePayload['history'][number] {
+  const copyText = input.cleanedText || input.transcript || ''
+
   return {
     id: input.id,
     createdAt: input.createdAt,
     title: input.transcript.slice(0, 36) || 'Voice transcription',
-    preview: input.cleanedText || input.transcript || '',
+    preview: copyText,
     status: input.status,
+    injectionStatus: input.injectionStatus,
+    injectionReason: input.injectionReason,
+    injectionDetail: input.injectionDetail,
     errorDetail: input.errorDetail,
-    hasAudio: Boolean(input.audio?.fileName)
+    hasAudio: Boolean(input.audio?.fileName),
+    canCopy: copyText.trim().length > 0
   }
 }
 
@@ -396,6 +410,9 @@ function buildHistoryPage(input: {
     cleanedText: string
     transcript: string
     status: 'pending' | 'completed' | 'failed'
+    injectionStatus?: MainAppStatePayload['history'][number]['injectionStatus']
+    injectionReason?: MainAppStatePayload['history'][number]['injectionReason']
+    injectionDetail?: string
     errorDetail?: string
     audio?: { fileName: string }
   }>
@@ -481,12 +498,16 @@ function buildMainAppState(input: {
   onboardingVisible: boolean
   permissions: AppPermissionSnapshot
   autoUpdate: MainAppStatePayload['autoUpdate']
+  dictationFallback: MainAppStatePayload['dictationFallback']
   history: Array<{
     id: string
     createdAt: number
     cleanedText: string
     transcript: string
     status: 'pending' | 'completed' | 'failed'
+    injectionStatus?: MainAppStatePayload['history'][number]['injectionStatus']
+    injectionReason?: MainAppStatePayload['history'][number]['injectionReason']
+    injectionDetail?: string
     errorDetail?: string
     audio?: { fileName: string }
   }>
@@ -675,6 +696,7 @@ function buildMainAppState(input: {
       microphone: buildPermissionState(input.permissions.microphone, input.resolvedLanguage)
     },
     autoUpdate: input.autoUpdate,
+    dictationFallback: input.dictationFallback,
     history: historyByTime.slice(0, HISTORY_PAGE_SIZE).map(toHistoryListItem),
     questionHistory: questionHistoryByTime
       .slice(0, HISTORY_PAGE_SIZE)
@@ -700,6 +722,7 @@ export async function bootstrapApplication(): Promise<void> {
 
   app.setName('TIA Voice')
   app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+  registerMeetingAudioProtocolPrivileges()
   await app.whenReady()
   logDebug('app', 'Application ready', {
     logPath: getDebugLogPath(),
@@ -759,6 +782,7 @@ export async function bootstrapApplication(): Promise<void> {
 
   const settingsStore = createSettingsStore(env.pushToTalkKey, app.getPath('userData'))
   const meetingStore = createMeetingStore(join(app.getPath('userData'), 'meeting-captures'))
+  registerMeetingAudioProtocol({ meetingStore })
   logDebug('meeting-capture', 'Meeting capture store initialized', {
     totalCount: meetingStore.listRecentMeetings({ limit: 1 }).totalCount
   })
@@ -785,6 +809,7 @@ export async function bootstrapApplication(): Promise<void> {
   let microphoneDialogVisible = false
   let microphoneCheckInFlight: Promise<void> | null = null
   let lastMicrophonePromptAt = 0
+  let latestDictationFallback: MainAppStatePayload['dictationFallback'] = null
 
   const getMicrophonePermissionSnapshot = (): PermissionSnapshot => {
     try {
@@ -1174,6 +1199,7 @@ export async function bootstrapApplication(): Promise<void> {
         onboardingVisible: onboardingDialogVisible,
         permissions: getAppPermissionSnapshot(),
         autoUpdate: getAutoUpdateState(),
+        dictationFallback: latestDictationFallback,
         history: settings.history,
         questionHistory: settings.questionHistory
       })
@@ -1702,6 +1728,9 @@ export async function bootstrapApplication(): Promise<void> {
     stopMeetingCapture: () => {
       windowManager.stopMeetingCapture()
     },
+    hideMeetingCapture: () => {
+      windowManager.hideMeetingCapture()
+    },
     setMeetingCaptureState: (state) => {
       windowManager.setMeetingCaptureState(state)
     }
@@ -1742,6 +1771,44 @@ export async function bootstrapApplication(): Promise<void> {
     await meetingCapturePipeline?.beginMeetingCapture()
   }
 
+  const copyHistoryTextToClipboard = async (entryId: string): Promise<void> => {
+    const entry = settingsStore.getHistoryEntry(entryId)
+    const text = (entry?.cleanedText || entry?.transcript || '').trim()
+    if (!entry || !text) {
+      throw new Error('No dictated text is available for this history item.')
+    }
+
+    electronClipboard.writeText(text)
+    logDebug('voice-pipeline', 'Copied history text to clipboard', {
+      historyId: entryId,
+      textLength: text.length
+    })
+  }
+
+  const notifyDictationFallback = (input: {
+    historyId: string
+    text: string
+    reason: NonNullable<MainAppStatePayload['dictationFallback']>['reason']
+    detail?: string
+  }): void => {
+    const text = input.text.trim()
+    latestDictationFallback = {
+      historyId: input.historyId,
+      createdAt: Date.now(),
+      preview: text.slice(0, 240),
+      reason: input.reason,
+      detail: input.detail
+    }
+    logDebug('voice-pipeline', 'Dictation text needs manual copy fallback', {
+      historyId: input.historyId,
+      reason: input.reason,
+      detail: input.detail,
+      textLength: text.length
+    })
+    syncAppState()
+    bringPrimaryWindowToFront()
+  }
+
   const voicePipeline = createVoicePipeline({
     contextProvider,
     sessionStore,
@@ -1764,6 +1831,7 @@ export async function bootstrapApplication(): Promise<void> {
     }),
     getPostProcessPreset: () => settingsStore.getSelectedPostProcessPreset(),
     getDictionaryEntries: () => settingsStore.getDictionaryEntries(),
+    notifyInjectionFallback: notifyDictationFallback,
     historyStore: {
       appendHistory: (entry) => {
         settingsStore.appendHistory(entry)
@@ -1966,6 +2034,9 @@ export async function bootstrapApplication(): Promise<void> {
         llmProcessing: entry.llmProcessing,
         transcript: entry.transcript,
         cleanedText: entry.cleanedText,
+        injectionStatus: entry.injectionStatus,
+        injectionReason: entry.injectionReason,
+        injectionDetail: entry.injectionDetail,
         errorDetail: entry.errorDetail,
         audio: audio
           ? {
@@ -1977,6 +2048,7 @@ export async function bootstrapApplication(): Promise<void> {
           : undefined
       }
     },
+    copyHistoryText: copyHistoryTextToClipboard,
     getMeetingHistoryPage: (input) => {
       return meetingStore.listRecentMeetings(input)
     },
@@ -1986,14 +2058,14 @@ export async function bootstrapApplication(): Promise<void> {
         return null
       }
 
-      const audio = await meetingStore.readMixedAudio(meetingId)
+      const audio = meetingStore.getMixedAudioFile(meetingId)
 
       return {
         ...meeting,
         transcriptSegments: meetingStore.getTranscriptSegments(meetingId),
         audio: audio
           ? {
-              bytes: audio.buffer,
+              url: createMeetingAudioUrl(meetingId, meeting.updatedAt),
               mimeType: audio.mimeType,
               durationMs: audio.durationMs,
               sizeBytes: audio.sizeBytes

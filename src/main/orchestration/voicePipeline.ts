@@ -1,5 +1,5 @@
 import type { ActionExecutor } from '../actions/ActionExecutor'
-import type { HistoryEntry } from '../config/settingsStore'
+import type { HistoryEntry, HistoryInjectionReason } from '../config/settingsStore'
 import type { ContextProvider } from '../context/ContextProvider'
 import { logDebug } from '../logging/debugLogger'
 import type { AsrProvider } from '../providers/asr/AsrProvider'
@@ -44,6 +44,12 @@ export function createVoicePipeline(dependencies: {
     } | null>
   }
   notifyChatWindow(state: ChatState): void
+  notifyInjectionFallback?(input: {
+    historyId: string
+    text: string
+    reason: HistoryInjectionReason
+    detail?: string
+  }): void
   hideRecordingBar(): void
   prepareBeforeTranscribe?: () => Promise<void>
 }): {
@@ -60,6 +66,7 @@ export function createVoicePipeline(dependencies: {
     selectedText: string | null
     clearSessionAfterward: boolean
     closeRecordingBarBeforeInject: boolean
+    inputFocused: boolean | null
     source: 'live' | 'retry'
   }): Promise<void> => {
     let transcriptText = ''
@@ -135,21 +142,52 @@ export function createVoicePipeline(dependencies: {
       if (input.closeRecordingBarBeforeInject) {
         dependencies.hideRecordingBar()
       }
-      await dependencies.actionExecutor.execute({ kind: 'paste-text', text: cleanedText })
-      logDebug('voice-pipeline', 'Paste action executed', {
-        source: input.source,
-        historyId: input.historyId
-      })
+
+      let injectionFallbackReason: HistoryInjectionReason | null =
+        input.inputFocused === false ? 'input-not-focused' : null
+      let injectionFallbackDetail: string | undefined
+
+      try {
+        await dependencies.actionExecutor.execute({ kind: 'paste-text', text: cleanedText })
+        logDebug('voice-pipeline', 'Paste action executed', {
+          source: input.source,
+          historyId: input.historyId,
+          inputFocused: input.inputFocused
+        })
+      } catch (error) {
+        injectionFallbackReason = 'paste-failed'
+        injectionFallbackDetail =
+          error instanceof Error ? error.message : 'Unable to paste dictated text.'
+        console.error('[voice] Paste action failed after transcription.', error)
+        logDebug('voice-pipeline', 'Paste action failed after transcription', {
+          source: input.source,
+          historyId: input.historyId,
+          errorMessage: error instanceof Error ? error.message : String(error)
+        })
+      }
+
       dependencies.historyStore.updateHistoryEntry(input.historyId, {
         status: 'completed',
         transcript: transcriptText,
         cleanedText,
         llmProcessing: postProcessPreset.enablePostProcessing ? 'completed' : 'skipped',
+        injectionStatus: injectionFallbackReason ? 'needs-copy' : 'pasted',
+        injectionReason: injectionFallbackReason ?? undefined,
+        injectionDetail: injectionFallbackDetail,
         errorDetail: undefined
       })
+      if (injectionFallbackReason) {
+        dependencies.notifyInjectionFallback?.({
+          historyId: input.historyId,
+          text: cleanedText,
+          reason: injectionFallbackReason,
+          detail: injectionFallbackDetail
+        })
+      }
       logDebug('voice-pipeline', 'History entry marked as completed', {
         source: input.source,
-        historyId: input.historyId
+        historyId: input.historyId,
+        injectionStatus: injectionFallbackReason ? 'needs-copy' : 'pasted'
       })
       dependencies.notifyChatWindow({ phase: 'done', text: cleanedText })
     } catch (error) {
@@ -266,6 +304,7 @@ export function createVoicePipeline(dependencies: {
         selectedText: activeSession?.snapshot.selectedText ?? null,
         clearSessionAfterward: true,
         closeRecordingBarBeforeInject: true,
+        inputFocused: activeSession?.snapshot.isInputFocused ?? null,
         source: 'live'
       })
 
@@ -299,6 +338,7 @@ export function createVoicePipeline(dependencies: {
         selectedText: null,
         clearSessionAfterward: false,
         closeRecordingBarBeforeInject: false,
+        inputFocused: null,
         source: 'retry'
       })
     }
