@@ -129,4 +129,12 @@ describe('createGlobalHotkeyService', () => {
     expect(onQuestionStart).toHaveBeenCalledTimes(1)
     expect(onQuestionStop).toHaveBeenCalledTimes(1)
   })
+
+  it('tracks the raw R key code for the meeting capture global shortcut fallback', () => {
+    expect(keyboardKeyCodes.KeyR).toBe(19)
+  })
+
+  it('tracks the raw L key code for the live caption global shortcut fallback', () => {
+    expect(keyboardKeyCodes.KeyL).toBe(38)
+  })
 })

@@ -6,16 +6,74 @@ import { is } from '@electron-toolkit/utils'
 import { IPC_CHANNELS, type MainAppStatePayload, type TtsStatePayload } from '../ipc/channels'
 import type { ChatState, QuestionRecordingCommand, RecordingCommand } from '../recording/types'
 import { DEFAULT_DICTIONARY_ENTRIES } from '../../shared/dictionary'
+import {
+  DEFAULT_LIVE_CAPTION_PREFERENCES,
+  type LiveCaptionCommand,
+  type LiveCaptionState
+} from '../../shared/liveCaption'
 
-export type WindowRole = 'main-app' | 'recording-bar' | 'question-bar' | 'chat' | 'tts-player'
+export type WindowRole =
+  | 'main-app'
+  | 'recording-bar'
+  | 'meeting-capture'
+  | 'live-caption-config'
+  | 'live-caption-overlay'
+  | 'question-bar'
+  | 'chat'
+  | 'tts-player'
+export type MeetingCaptureCommand =
+  | {
+      type: 'start'
+      deviceId?: string | null
+    }
+  | {
+      type: 'stop'
+    }
+  | {
+      type: 'state'
+      transcriptItems?: Array<{
+        id: string
+        speaker: 'You' | 'Others'
+        text: string
+        createdAt: number
+      }>
+    }
+  | {
+      type: 'error'
+      detail: string
+    }
+export type MeetingCaptureState = {
+  status: 'idle' | 'starting' | 'recording' | 'processing' | 'completed' | 'failed'
+  meetingId: string | null
+  startedAt: number | null
+  transcriptItems: Array<{
+    id: string
+    speaker: 'You' | 'Others'
+    text: string
+    createdAt: number
+  }>
+  errorDetail: string | null
+}
 export type WindowManager = {
   getMainAppWindow(): BrowserWindow
   getChatState(): ChatState
   getTtsState(): TtsStatePayload
+  getMeetingCaptureState(): MeetingCaptureState
+  getLiveCaptionState(): LiveCaptionState
   getAppState(): MainAppStatePayload
   showRecordingBar(command: RecordingCommand): void
   stopRecordingBar(): void
   hideRecordingBar(): void
+  showMeetingCapture(command: MeetingCaptureCommand): void
+  setMeetingCaptureState(state: MeetingCaptureState): void
+  stopMeetingCapture(): void
+  hideMeetingCapture(): void
+  showLiveCaptionConfig(): void
+  hideLiveCaptionConfig(): void
+  showLiveCaptionOverlay(): void
+  hideLiveCaptionOverlay(): void
+  setLiveCaptionState(state: LiveCaptionState): void
+  sendLiveCaptionCommand(command: LiveCaptionCommand): void
   showQuestionBar(command: QuestionRecordingCommand): void
   stopQuestionBar(): void
   showQuestionPending(input: Extract<QuestionRecordingCommand, { type: 'pending' }>): void
@@ -160,11 +218,28 @@ function closeManagedWindow(window?: BrowserWindow): void {
 export function createWindowManager(input: {
   mainAppWindow: BrowserWindow
   recordingBarWindow: BrowserWindow
+  meetingCaptureWindow?: BrowserWindow
+  liveCaptionConfigWindow?: BrowserWindow
+  liveCaptionOverlayWindow?: BrowserWindow
   questionBarWindow?: BrowserWindow
   chatWindow?: BrowserWindow
   ttsPlayerWindow?: BrowserWindow
 }): WindowManager {
   let chatState: ChatState = { phase: 'idle' }
+  let meetingCaptureState: MeetingCaptureState = {
+    status: 'idle',
+    meetingId: null,
+    startedAt: null,
+    transcriptItems: [],
+    errorDetail: null
+  }
+  let liveCaptionState: LiveCaptionState = {
+    status: 'idle',
+    source: null,
+    preferences: DEFAULT_LIVE_CAPTION_PREFERENCES,
+    lines: [],
+    error: null
+  }
   let questionBarExpanded = false
   let ttsState: TtsStatePayload = {
     status: 'idle',
@@ -244,6 +319,7 @@ export function createWindowManager(input: {
     features: {
       autoTextToSpeech: false
     },
+    liveCaption: DEFAULT_LIVE_CAPTION_PREFERENCES,
     dictionaryEntries: DEFAULT_DICTIONARY_ENTRIES.map((entry) => ({ ...entry })),
     postProcessPreset: 'formal',
     postProcessPresets: [
@@ -305,6 +381,7 @@ export function createWindowManager(input: {
       downloadProgressPercent: null,
       message: null
     },
+    dictationFallback: null,
     history: [],
     questionHistory: []
   }
@@ -318,6 +395,19 @@ export function createWindowManager(input: {
     },
     getTtsState(): TtsStatePayload {
       return ttsState
+    },
+    getMeetingCaptureState(): MeetingCaptureState {
+      return {
+        ...meetingCaptureState,
+        transcriptItems: [...(meetingCaptureState.transcriptItems ?? [])]
+      }
+    },
+    getLiveCaptionState(): LiveCaptionState {
+      return {
+        ...liveCaptionState,
+        preferences: { ...liveCaptionState.preferences },
+        lines: liveCaptionState.lines.map((line) => ({ ...line }))
+      }
     },
     getAppState(): MainAppStatePayload {
       return appState
@@ -333,6 +423,123 @@ export function createWindowManager(input: {
       if (!input.recordingBarWindow.isDestroyed()) {
         input.recordingBarWindow.hide()
       }
+    },
+    showMeetingCapture(command: MeetingCaptureCommand): void {
+      if (!input.meetingCaptureWindow) {
+        return
+      }
+
+      showOverlayWindow(input.meetingCaptureWindow)
+      sendWhenReady(input.meetingCaptureWindow, IPC_CHANNELS.meetingCapture.command, command)
+    },
+    setMeetingCaptureState(state): void {
+      meetingCaptureState = {
+        ...state,
+        transcriptItems: [...(state.transcriptItems ?? [])]
+      }
+
+      if (!input.meetingCaptureWindow) {
+        return
+      }
+
+      if (state.status === 'idle') {
+        input.meetingCaptureWindow.hide()
+        return
+      }
+
+      showOverlayWindow(input.meetingCaptureWindow)
+      sendWhenReady(input.meetingCaptureWindow, IPC_CHANNELS.meetingCapture.command, {
+        type: state.status === 'failed' && state.errorDetail ? 'error' : 'state',
+        ...(state.status === 'failed' && state.errorDetail
+          ? { detail: state.errorDetail }
+          : { transcriptItems: state.transcriptItems ?? [] })
+      })
+      sendWhenReady(input.meetingCaptureWindow, IPC_CHANNELS.meetingCapture.state, state)
+    },
+    stopMeetingCapture(): void {
+      if (!input.meetingCaptureWindow) {
+        return
+      }
+
+      sendWhenReady(input.meetingCaptureWindow, IPC_CHANNELS.meetingCapture.command, {
+        type: 'stop'
+      })
+    },
+    hideMeetingCapture(): void {
+      if (!input.meetingCaptureWindow || input.meetingCaptureWindow.isDestroyed()) {
+        return
+      }
+
+      input.meetingCaptureWindow.hide()
+    },
+    showLiveCaptionConfig(): void {
+      if (!input.liveCaptionConfigWindow || input.liveCaptionConfigWindow.isDestroyed()) {
+        return
+      }
+
+      input.liveCaptionConfigWindow.show()
+      input.liveCaptionConfigWindow.focus()
+      sendWhenReady(input.liveCaptionConfigWindow, IPC_CHANNELS.liveCaption.command, {
+        type: 'state',
+        state: liveCaptionState
+      })
+      sendWhenReady(input.liveCaptionConfigWindow, IPC_CHANNELS.liveCaption.state, liveCaptionState)
+    },
+    hideLiveCaptionConfig(): void {
+      if (!input.liveCaptionConfigWindow || input.liveCaptionConfigWindow.isDestroyed()) {
+        return
+      }
+
+      input.liveCaptionConfigWindow.hide()
+    },
+    showLiveCaptionOverlay(): void {
+      if (!input.liveCaptionOverlayWindow || input.liveCaptionOverlayWindow.isDestroyed()) {
+        return
+      }
+
+      showOverlayWindow(input.liveCaptionOverlayWindow)
+      sendWhenReady(input.liveCaptionOverlayWindow, IPC_CHANNELS.liveCaption.command, {
+        type: 'state',
+        state: liveCaptionState
+      })
+      sendWhenReady(
+        input.liveCaptionOverlayWindow,
+        IPC_CHANNELS.liveCaption.state,
+        liveCaptionState
+      )
+    },
+    hideLiveCaptionOverlay(): void {
+      if (!input.liveCaptionOverlayWindow || input.liveCaptionOverlayWindow.isDestroyed()) {
+        return
+      }
+
+      input.liveCaptionOverlayWindow.hide()
+    },
+    setLiveCaptionState(state): void {
+      liveCaptionState = {
+        ...state,
+        preferences: { ...state.preferences },
+        lines: state.lines.map((line) => ({ ...line }))
+      }
+
+      for (const targetWindow of [input.liveCaptionConfigWindow, input.liveCaptionOverlayWindow]) {
+        if (!targetWindow || targetWindow.isDestroyed()) {
+          continue
+        }
+
+        sendWhenReady(targetWindow, IPC_CHANNELS.liveCaption.command, {
+          type: 'state',
+          state: liveCaptionState
+        })
+        sendWhenReady(targetWindow, IPC_CHANNELS.liveCaption.state, liveCaptionState)
+      }
+    },
+    sendLiveCaptionCommand(command): void {
+      if (!input.liveCaptionOverlayWindow || input.liveCaptionOverlayWindow.isDestroyed()) {
+        return
+      }
+
+      sendWhenReady(input.liveCaptionOverlayWindow, IPC_CHANNELS.liveCaption.command, command)
     },
     showQuestionBar(command: QuestionRecordingCommand): void {
       if (!input.questionBarWindow) {
@@ -455,6 +662,9 @@ export function createWindowManager(input: {
       closeManagedWindow(input.ttsPlayerWindow)
       closeManagedWindow(input.chatWindow)
       closeManagedWindow(input.questionBarWindow)
+      closeManagedWindow(input.liveCaptionOverlayWindow)
+      closeManagedWindow(input.liveCaptionConfigWindow)
+      closeManagedWindow(input.meetingCaptureWindow)
       closeManagedWindow(input.recordingBarWindow)
       closeManagedWindow(input.mainAppWindow)
     },

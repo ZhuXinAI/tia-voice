@@ -12,6 +12,11 @@ describe('createSettingsStore', () => {
     expect(store.get().providers.asr).toBe('qwen3-asr-flash')
     expect(store.get().themeMode).toBe('system')
     expect(store.get().languagePreference).toBe('system')
+    expect(store.getLiveCaptionPreferences()).toEqual({
+      sourceLanguage: 'auto',
+      targetLanguage: null,
+      showOriginalWhenTranslating: true
+    })
     expect(store.isAutoTextToSpeechEnabled()).toBe(false)
     expect(store.getDictionaryEntries()).toHaveLength(2)
     expect(store.getPostProcessPreset()).toBe('formal')
@@ -58,6 +63,11 @@ describe('createSettingsStore', () => {
     firstStore.setProviderLlmModel('openai', 'gpt-4.1-mini')
     firstStore.setPostProcessPreset('casual')
     firstStore.setLanguagePreference('zh-TW')
+    firstStore.setLiveCaptionPreferences({
+      sourceLanguage: 'zh',
+      targetLanguage: 'en',
+      showOriginalWhenTranslating: false
+    })
     firstStore.setAutoTextToSpeechEnabled(true)
     const dictionaryEntry = firstStore.saveDictionaryEntry({
       phrase: 'build mine',
@@ -88,6 +98,11 @@ describe('createSettingsStore', () => {
     })
     expect(secondStore.getPostProcessPreset()).toBe('casual')
     expect(secondStore.get().languagePreference).toBe('zh-TW')
+    expect(secondStore.getLiveCaptionPreferences()).toEqual({
+      sourceLanguage: 'zh',
+      targetLanguage: 'en',
+      showOriginalWhenTranslating: false
+    })
     expect(secondStore.isAutoTextToSpeechEnabled()).toBe(true)
     expect(secondStore.getDictionaryEntries()).toContainEqual(dictionaryEntry)
     expect(secondStore.get().hotkey).toBe('AltRight')
@@ -165,6 +180,37 @@ describe('createSettingsStore', () => {
     expect(store.getProviderModels('openai')).toEqual({
       asr: 'gpt-4o-mini-transcribe',
       llm: 'gpt-5-nano'
+    })
+
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('normalizes unsupported live caption preferences', () => {
+    const root = mkdtempSync(join(tmpdir(), 'tia-voice-settings-live-caption-normalize-'))
+    writeFileSync(
+      join(root, 'settings.json'),
+      JSON.stringify({
+        hotkey: 'MetaRight',
+        themeMode: 'system',
+        providers: {
+          asr: 'qwen3-asr-flash',
+          llm: 'qwen3.5-flash'
+        },
+        liveCaption: {
+          sourceLanguage: 'not-real',
+          targetLanguage: 'also-not-real',
+          showOriginalWhenTranslating: false
+        },
+        history: []
+      }),
+      'utf8'
+    )
+
+    const store = createSettingsStore('MetaRight', root)
+    expect(store.getLiveCaptionPreferences()).toEqual({
+      sourceLanguage: 'auto',
+      targetLanguage: null,
+      showOriginalWhenTranslating: false
     })
 
     rmSync(root, { recursive: true, force: true })

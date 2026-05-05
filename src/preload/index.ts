@@ -18,6 +18,11 @@ import {
   type TriggerKey,
   type ThemeMode
 } from '../main/ipc/channels'
+import type {
+  LiveCaptionCommand,
+  LiveCaptionPreferences,
+  LiveCaptionState
+} from '../shared/liveCaption'
 import type { TtsSource } from '../shared/tts'
 
 export type {
@@ -31,6 +36,7 @@ export type {
   TriggerKey
 }
 export type { PostProcessPresetPayload }
+export type { LiveCaptionCommand, LiveCaptionPreferences, LiveCaptionState }
 export type { TtsSource }
 
 export type ElectronBridge = {
@@ -79,6 +85,53 @@ export type RecordingArtifact = {
   mimeType: string
   buffer: Uint8Array
   durationMs: number
+  sizeBytes?: number
+}
+
+export type MeetingCaptureCommand =
+  | {
+      type: 'start'
+      deviceId?: string | null
+    }
+  | {
+      type: 'stop'
+    }
+  | {
+      type: 'state'
+      transcriptItems?: Array<{
+        id: string
+        speaker: 'You' | 'Others'
+        text: string
+        createdAt: number
+      }>
+    }
+  | {
+      type: 'error'
+      detail: string
+    }
+
+export type MeetingCaptureState = {
+  status: 'idle' | 'starting' | 'recording' | 'processing' | 'completed' | 'failed'
+  meetingId: string | null
+  startedAt: number | null
+  transcriptItems: Array<{
+    id: string
+    speaker: 'You' | 'Others'
+    text: string
+    createdAt: number
+  }>
+  errorDetail: string | null
+}
+
+export type MeetingPcmChunkPayload = {
+  streamId: 'microphone' | 'system'
+  chunk: Uint8Array
+  capturedAt: number
+}
+
+export type LiveCaptionPcmChunkPayload = {
+  chunk: Uint8Array
+  capturedAt: number
 }
 
 export type TiaChatState = {
@@ -94,6 +147,9 @@ export type TiaHistoryDebugEntry = {
   llmProcessing: 'pending' | 'completed' | 'skipped' | 'failed'
   transcript: string
   cleanedText: string
+  injectionStatus?: MainAppState['history'][number]['injectionStatus']
+  injectionReason?: MainAppState['history'][number]['injectionReason']
+  injectionDetail?: string
   errorDetail?: string
   audio?: {
     bytes: Uint8Array
@@ -101,6 +157,56 @@ export type TiaHistoryDebugEntry = {
     durationMs: number
     sizeBytes: number
   }
+}
+
+export type MeetingHistoryEntry = {
+  id: string
+  createdAt: number
+  updatedAt: number
+  startedAt: number
+  endedAt: number | null
+  durationMs: number
+  status: 'recording' | 'processing' | 'completed' | 'failed'
+  llmProcessing: 'pending' | 'completed' | 'failed'
+  title: string
+  summary: string
+  polishedTranscript: string
+  errorDetail?: string
+  audio?: {
+    fileName: string
+    mimeType: string
+    durationMs: number
+    sizeBytes: number
+  }
+  transcriptFileName: string
+}
+
+export type MeetingTranscriptSegmentPayload = {
+  id: string
+  streamId: 'microphone' | 'system'
+  speaker: 'you' | 'others'
+  text: string
+  beginMs: number
+  endMs: number
+  final: boolean
+  createdAt: number
+}
+
+export type MeetingAudioPayload = {
+  url: string
+  mimeType: string
+  durationMs: number
+  sizeBytes: number
+}
+
+export type MeetingHistoryPagePayload = {
+  items: MeetingHistoryEntry[]
+  totalCount: number
+}
+
+export type MeetingDetailPayload = MeetingHistoryEntry & {
+  transcriptSegments: MeetingTranscriptSegmentPayload[]
+  audio?: MeetingAudioPayload
 }
 
 export type MainAppState = {
@@ -143,6 +249,7 @@ export type MainAppState = {
   features: {
     autoTextToSpeech: boolean
   }
+  liveCaption: LiveCaptionPreferences
   dictionaryEntries: DictionaryEntryPayload[]
   postProcessPreset: PostProcessPresetId
   postProcessPresets: PostProcessPresetPayload[]
@@ -165,14 +272,25 @@ export type MainAppState = {
     microphone: PermissionStatePayload
   }
   autoUpdate: AutoUpdateStatePayload
+  dictationFallback: {
+    historyId: string
+    createdAt: number
+    preview: string
+    reason: 'input-not-focused' | 'paste-failed'
+    detail?: string
+  } | null
   history: Array<{
     id: string
     createdAt: number
     title: string
     preview: string
     status: 'pending' | 'completed' | 'failed'
+    injectionStatus?: 'pasted' | 'needs-copy'
+    injectionReason?: 'input-not-focused' | 'paste-failed'
+    injectionDetail?: string
     errorDetail?: string
     hasAudio: boolean
+    canCopy: boolean
   }>
   questionHistory: Array<{
     id: string
@@ -189,26 +307,47 @@ export type MainAppState = {
 export type TiaApi = {
   onRecordingCommand(listener: (command: RecordingCommand) => void): () => void
   onQuestionRecordingCommand(listener: (command: QuestionRecordingCommand) => void): () => void
+  onMeetingCommand(listener: (command: MeetingCaptureCommand) => void): () => void
+  onLiveCaptionCommand(listener: (command: LiveCaptionCommand) => void): () => void
   submitRecordingArtifact(artifact: RecordingArtifact): Promise<void>
   submitQuestionRecordingArtifact(artifact: RecordingArtifact): Promise<void>
+  sendMeetingPcmChunk(input: MeetingPcmChunkPayload): Promise<void>
+  sendLiveCaptionPcmChunk(input: LiveCaptionPcmChunkPayload): Promise<void>
+  submitMeetingMixedAudio(artifact: RecordingArtifact): Promise<void>
+  requestFinishMeeting(): Promise<void>
   cancelQuestionRecording(): Promise<void>
   reportRecordingFailure(detail: string): Promise<void>
   reportQuestionRecordingFailure(detail: string): Promise<void>
+  reportMeetingCaptureFailure(detail: string): Promise<void>
+  reportLiveCaptionCaptureFailure(detail: string): Promise<void>
   onChatState(listener: (state: TiaChatState) => void): () => void
   onTtsState(listener: (state: TtsStatePayload) => void): () => void
+  onMeetingState(listener: (state: MeetingCaptureState) => void): () => void
+  onLiveCaptionState(listener: (state: LiveCaptionState) => void): () => void
   onAppState(listener: (state: MainAppState) => void): () => void
   getChatState(): Promise<TiaChatState>
   getTtsState(): Promise<TtsStatePayload>
+  getLiveCaptionState(): Promise<LiveCaptionState>
+  getLiveCaptionPreferences(): Promise<LiveCaptionPreferences>
   getMainAppState(): Promise<MainAppState>
   getHistoryPage(input?: { offset?: number; limit?: number }): Promise<HistoryPagePayload>
   getQuestionHistoryPage(input?: {
     offset?: number
     limit?: number
   }): Promise<QuestionHistoryPagePayload>
+  getMeetingHistoryPage(input?: {
+    offset?: number
+    limit?: number
+  }): Promise<MeetingHistoryPagePayload>
+  getMeetingDetail(meetingId: string): Promise<MeetingDetailPayload | null>
   getHistoryEntryDebug(entryId: string): Promise<TiaHistoryDebugEntry | null>
+  copyHistoryText(entryId: string): Promise<void>
   retryHistoryEntry(entryId: string): Promise<void>
   startDictation(source?: 'global' | 'onboarding'): Promise<void>
   stopDictation(source?: 'global' | 'onboarding'): Promise<void>
+  startLiveCaption(preferences: LiveCaptionPreferences): Promise<boolean>
+  stopLiveCaption(source?: 'renderer' | 'overlay-close'): Promise<void>
+  setLiveCaptionPreferences(preferences: LiveCaptionPreferences): Promise<void>
   startTextToSpeech(input: { text: string; source?: TtsSource }): Promise<void>
   stopTextToSpeech(): Promise<void>
   setThemeMode(themeMode: ThemeMode): Promise<void>
@@ -261,6 +400,23 @@ const QUESTION_RECORDING_COMMAND_CHANNEL = IPC_CHANNELS.questionRecording.comman
 const QUESTION_RECORDING_COMPLETE_CHANNEL = IPC_CHANNELS.questionRecording.complete
 const QUESTION_RECORDING_FAILED_CHANNEL = IPC_CHANNELS.questionRecording.failed
 const QUESTION_RECORDING_CANCEL_CHANNEL = IPC_CHANNELS.questionRecording.cancel
+const MEETING_CAPTURE_COMMAND_CHANNEL = IPC_CHANNELS.meetingCapture.command
+const MEETING_CAPTURE_PCM_CHUNK_CHANNEL = IPC_CHANNELS.meetingCapture.pcmChunk
+const MEETING_CAPTURE_MIXED_AUDIO_COMPLETE_CHANNEL = IPC_CHANNELS.meetingCapture.mixedAudioComplete
+const MEETING_CAPTURE_FINISH_REQUESTED_CHANNEL = IPC_CHANNELS.meetingCapture.finishRequested
+const MEETING_CAPTURE_FAILED_CHANNEL = IPC_CHANNELS.meetingCapture.failed
+const MEETING_CAPTURE_STATE_CHANNEL = IPC_CHANNELS.meetingCapture.state
+const MEETING_CAPTURE_GET_HISTORY_PAGE_CHANNEL = IPC_CHANNELS.meetingCapture.getHistoryPage
+const MEETING_CAPTURE_GET_DETAIL_CHANNEL = IPC_CHANNELS.meetingCapture.getDetail
+const LIVE_CAPTION_COMMAND_CHANNEL = IPC_CHANNELS.liveCaption.command
+const LIVE_CAPTION_STATE_CHANNEL = IPC_CHANNELS.liveCaption.state
+const LIVE_CAPTION_GET_STATE_CHANNEL = IPC_CHANNELS.liveCaption.getState
+const LIVE_CAPTION_GET_PREFERENCES_CHANNEL = IPC_CHANNELS.liveCaption.getPreferences
+const LIVE_CAPTION_SET_PREFERENCES_CHANNEL = IPC_CHANNELS.liveCaption.setPreferences
+const LIVE_CAPTION_START_CHANNEL = IPC_CHANNELS.liveCaption.start
+const LIVE_CAPTION_STOP_CHANNEL = IPC_CHANNELS.liveCaption.stop
+const LIVE_CAPTION_PCM_CHUNK_CHANNEL = IPC_CHANNELS.liveCaption.pcmChunk
+const LIVE_CAPTION_CAPTURE_FAILED_CHANNEL = IPC_CHANNELS.liveCaption.captureFailed
 const CHAT_STATE_CHANNEL = 'chat:state'
 const CHAT_STATE_REQUEST_CHANNEL = 'chat:get-state'
 const TTS_STATE_CHANNEL = IPC_CHANNELS.tts.state
@@ -272,6 +428,7 @@ const APP_STATE_REQUEST_CHANNEL = 'app:get-state'
 const APP_GET_HISTORY_PAGE_CHANNEL = IPC_CHANNELS.app.getHistoryPage
 const APP_GET_QUESTION_HISTORY_PAGE_CHANNEL = IPC_CHANNELS.app.getQuestionHistoryPage
 const APP_GET_HISTORY_ENTRY_DEBUG_CHANNEL = IPC_CHANNELS.app.getHistoryEntryDebug
+const APP_COPY_HISTORY_TEXT_CHANNEL = IPC_CHANNELS.app.copyHistoryText
 const APP_RETRY_HISTORY_CHANNEL = 'app:retry-history'
 const APP_START_DICTATION_CHANNEL = IPC_CHANNELS.app.startDictation
 const APP_STOP_DICTATION_CHANNEL = IPC_CHANNELS.app.stopDictation
@@ -322,6 +479,18 @@ const api: TiaApi = {
     ipcRenderer.on(QUESTION_RECORDING_COMMAND_CHANNEL, wrapped)
     return () => ipcRenderer.removeListener(QUESTION_RECORDING_COMMAND_CHANNEL, wrapped)
   },
+  onMeetingCommand(listener) {
+    const wrapped = (_event: Electron.IpcRendererEvent, command: MeetingCaptureCommand): void =>
+      listener(command)
+    ipcRenderer.on(MEETING_CAPTURE_COMMAND_CHANNEL, wrapped)
+    return () => ipcRenderer.removeListener(MEETING_CAPTURE_COMMAND_CHANNEL, wrapped)
+  },
+  onLiveCaptionCommand(listener) {
+    const wrapped = (_event: Electron.IpcRendererEvent, command: LiveCaptionCommand): void =>
+      listener(command)
+    ipcRenderer.on(LIVE_CAPTION_COMMAND_CHANNEL, wrapped)
+    return () => ipcRenderer.removeListener(LIVE_CAPTION_COMMAND_CHANNEL, wrapped)
+  },
   submitRecordingArtifact(artifact) {
     return ipcRenderer.invoke(RECORDING_COMPLETE_CHANNEL, {
       ...artifact,
@@ -334,6 +503,27 @@ const api: TiaApi = {
       buffer: Array.from(artifact.buffer)
     })
   },
+  sendMeetingPcmChunk(input) {
+    return ipcRenderer.invoke(MEETING_CAPTURE_PCM_CHUNK_CHANNEL, {
+      ...input,
+      chunk: Array.from(input.chunk)
+    })
+  },
+  sendLiveCaptionPcmChunk(input) {
+    return ipcRenderer.invoke(LIVE_CAPTION_PCM_CHUNK_CHANNEL, {
+      ...input,
+      chunk: Array.from(input.chunk)
+    })
+  },
+  submitMeetingMixedAudio(artifact) {
+    return ipcRenderer.invoke(MEETING_CAPTURE_MIXED_AUDIO_COMPLETE_CHANNEL, {
+      ...artifact,
+      buffer: Array.from(artifact.buffer)
+    })
+  },
+  requestFinishMeeting() {
+    return ipcRenderer.invoke(MEETING_CAPTURE_FINISH_REQUESTED_CHANNEL)
+  },
   cancelQuestionRecording() {
     return ipcRenderer.invoke(QUESTION_RECORDING_CANCEL_CHANNEL)
   },
@@ -342,6 +532,12 @@ const api: TiaApi = {
   },
   reportQuestionRecordingFailure(detail) {
     return ipcRenderer.invoke(QUESTION_RECORDING_FAILED_CHANNEL, detail)
+  },
+  reportMeetingCaptureFailure(detail) {
+    return ipcRenderer.invoke(MEETING_CAPTURE_FAILED_CHANNEL, detail)
+  },
+  reportLiveCaptionCaptureFailure(detail) {
+    return ipcRenderer.invoke(LIVE_CAPTION_CAPTURE_FAILED_CHANNEL, detail)
   },
   onChatState(listener) {
     const wrapped = (_event: Electron.IpcRendererEvent, state: TiaChatState): void =>
@@ -355,6 +551,18 @@ const api: TiaApi = {
     ipcRenderer.on(TTS_STATE_CHANNEL, wrapped)
     return () => ipcRenderer.removeListener(TTS_STATE_CHANNEL, wrapped)
   },
+  onMeetingState(listener) {
+    const wrapped = (_event: Electron.IpcRendererEvent, state: MeetingCaptureState): void =>
+      listener(state)
+    ipcRenderer.on(MEETING_CAPTURE_STATE_CHANNEL, wrapped)
+    return () => ipcRenderer.removeListener(MEETING_CAPTURE_STATE_CHANNEL, wrapped)
+  },
+  onLiveCaptionState(listener) {
+    const wrapped = (_event: Electron.IpcRendererEvent, state: LiveCaptionState): void =>
+      listener(state)
+    ipcRenderer.on(LIVE_CAPTION_STATE_CHANNEL, wrapped)
+    return () => ipcRenderer.removeListener(LIVE_CAPTION_STATE_CHANNEL, wrapped)
+  },
   onAppState(listener) {
     const wrapped = (_event: Electron.IpcRendererEvent, state: MainAppState): void =>
       listener(state)
@@ -367,6 +575,12 @@ const api: TiaApi = {
   getTtsState() {
     return ipcRenderer.invoke(TTS_STATE_REQUEST_CHANNEL)
   },
+  getLiveCaptionState() {
+    return ipcRenderer.invoke(LIVE_CAPTION_GET_STATE_CHANNEL)
+  },
+  getLiveCaptionPreferences() {
+    return ipcRenderer.invoke(LIVE_CAPTION_GET_PREFERENCES_CHANNEL)
+  },
   getMainAppState() {
     return ipcRenderer.invoke(APP_STATE_REQUEST_CHANNEL)
   },
@@ -376,8 +590,17 @@ const api: TiaApi = {
   getQuestionHistoryPage(input) {
     return ipcRenderer.invoke(APP_GET_QUESTION_HISTORY_PAGE_CHANNEL, input)
   },
+  getMeetingHistoryPage(input) {
+    return ipcRenderer.invoke(MEETING_CAPTURE_GET_HISTORY_PAGE_CHANNEL, input)
+  },
+  getMeetingDetail(meetingId) {
+    return ipcRenderer.invoke(MEETING_CAPTURE_GET_DETAIL_CHANNEL, meetingId)
+  },
   getHistoryEntryDebug(entryId) {
     return ipcRenderer.invoke(APP_GET_HISTORY_ENTRY_DEBUG_CHANNEL, entryId)
+  },
+  copyHistoryText(entryId) {
+    return ipcRenderer.invoke(APP_COPY_HISTORY_TEXT_CHANNEL, entryId)
   },
   retryHistoryEntry(entryId) {
     return ipcRenderer.invoke(APP_RETRY_HISTORY_CHANNEL, entryId)
@@ -387,6 +610,15 @@ const api: TiaApi = {
   },
   stopDictation(source = 'global') {
     return ipcRenderer.invoke(APP_STOP_DICTATION_CHANNEL, source)
+  },
+  startLiveCaption(preferences) {
+    return ipcRenderer.invoke(LIVE_CAPTION_START_CHANNEL, preferences)
+  },
+  stopLiveCaption(source = 'renderer') {
+    return ipcRenderer.invoke(LIVE_CAPTION_STOP_CHANNEL, source)
+  },
+  setLiveCaptionPreferences(preferences) {
+    return ipcRenderer.invoke(LIVE_CAPTION_SET_PREFERENCES_CHANNEL, preferences)
   },
   startTextToSpeech(input) {
     return ipcRenderer.invoke(TTS_START_CHANNEL, input)

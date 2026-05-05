@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Pause, Play, RotateCcw } from 'lucide-react'
 
-import type { TiaHistoryDebugEntry } from '../../../preload/index'
+import type { MeetingAudioPayload, TiaHistoryDebugEntry } from '../../../preload/index'
 import { Button } from './ui/button'
 import { cn } from '@renderer/lib/utils'
 
@@ -22,7 +22,9 @@ function formatClock(seconds: number): string {
   const remainingSeconds = roundedSeconds % 60
 
   if (hours > 0) {
-    return [hours, minutes, remainingSeconds].map((value) => String(value).padStart(2, '0')).join(':')
+    return [hours, minutes, remainingSeconds]
+      .map((value) => String(value).padStart(2, '0'))
+      .join(':')
   }
 
   return [minutes, remainingSeconds].map((value) => String(value).padStart(2, '0')).join(':')
@@ -59,7 +61,15 @@ function createWaveformPeaks(buffer: AudioBuffer, count: number): number[] {
 }
 
 type AudioPlayerProps = {
-  audio: NonNullable<TiaHistoryDebugEntry['audio']>
+  audio: NonNullable<TiaHistoryDebugEntry['audio']> | MeetingAudioPayload
+}
+
+function getAudioBytes(audio: AudioPlayerProps['audio']): Uint8Array | null {
+  return 'bytes' in audio ? audio.bytes : null
+}
+
+function getAudioUrl(audio: AudioPlayerProps['audio']): string | null {
+  return 'url' in audio ? audio.url : null
 }
 
 export function AudioPlayer(props: AudioPlayerProps): React.JSX.Element {
@@ -70,25 +80,42 @@ export function AudioPlayer(props: AudioPlayerProps): React.JSX.Element {
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(audio.durationMs / 1000)
   const [peaks, setPeaks] = useState<number[]>(FALLBACK_PEAKS)
+  const sourceUrl = getAudioUrl(audio)
+  const audioBytes = getAudioBytes(audio)
 
   useEffect(() => {
-    const audioBytes = new Uint8Array(audio.bytes)
-    const blob = new Blob([audioBytes.buffer.slice(0)], { type: audio.mimeType })
+    if (sourceUrl) {
+      setAudioUrl(sourceUrl)
+      return
+    }
+
+    if (!audioBytes) {
+      setAudioUrl(null)
+      return
+    }
+
+    const bytes = new Uint8Array(audioBytes)
+    const blob = new Blob([bytes.buffer.slice(0)], { type: audio.mimeType })
     const nextAudioUrl = URL.createObjectURL(blob)
     setAudioUrl(nextAudioUrl)
 
     return () => {
       URL.revokeObjectURL(nextAudioUrl)
     }
-  }, [audio])
+  }, [audio.mimeType, audioBytes, sourceUrl])
 
   useEffect(() => {
     setDuration(audio.durationMs / 1000)
     setCurrentTime(0)
     setIsPlaying(false)
-  }, [audio.durationMs, audio.mimeType, audio.bytes])
+  }, [audio.durationMs, audio.mimeType, audioBytes, sourceUrl])
 
   useEffect(() => {
+    if (!audioBytes) {
+      setPeaks(FALLBACK_PEAKS)
+      return
+    }
+
     const AudioContextClass = window.AudioContext
     if (!AudioContextClass) {
       setPeaks(FALLBACK_PEAKS)
@@ -100,7 +127,9 @@ export function AudioPlayer(props: AudioPlayerProps): React.JSX.Element {
 
     void (async () => {
       try {
-        const decoded = await audioContext.decodeAudioData(new Uint8Array(audio.bytes).slice().buffer)
+        const decoded = await audioContext.decodeAudioData(
+          new Uint8Array(audioBytes).slice().buffer
+        )
         if (!cancelled) {
           setPeaks(createWaveformPeaks(decoded, PEAK_COUNT))
         }
@@ -117,7 +146,7 @@ export function AudioPlayer(props: AudioPlayerProps): React.JSX.Element {
       cancelled = true
       void audioContext.close()
     }
-  }, [audio])
+  }, [audioBytes])
 
   useEffect(() => {
     const element = audioRef.current
@@ -221,7 +250,10 @@ export function AudioPlayer(props: AudioPlayerProps): React.JSX.Element {
   }
 
   return (
-    <div className="mt-3 rounded-2xl border border-border/70 bg-background/75 p-4 shadow-sm" data-testid="audio-player">
+    <div
+      className="mt-3 rounded-2xl border border-border/70 bg-background/75 p-4 shadow-sm"
+      data-testid="audio-player"
+    >
       <audio ref={audioRef} preload="metadata" src={audioUrl ?? undefined} className="hidden" />
 
       <div className="flex items-center gap-3">
@@ -247,8 +279,14 @@ export function AudioPlayer(props: AudioPlayerProps): React.JSX.Element {
             onClick={handleWaveformClick}
             aria-label="Seek audio waveform"
           >
-            <div className="pointer-events-none absolute inset-y-0 left-0 bg-primary/16" style={progressStyle} />
-            <div className="relative flex h-full items-end gap-1 px-3 py-4" data-testid="audio-waveform">
+            <div
+              className="pointer-events-none absolute inset-y-0 left-0 bg-primary/16"
+              style={progressStyle}
+            />
+            <div
+              className="relative flex h-full items-end gap-1 px-3 py-4"
+              data-testid="audio-waveform"
+            >
               {peaks.map((peak, index) => {
                 const barProgress = index / Math.max(peaks.length - 1, 1)
                 return (
@@ -285,7 +323,9 @@ export function AudioPlayer(props: AudioPlayerProps): React.JSX.Element {
       </div>
 
       <div className="mt-3 flex items-center justify-between gap-3 text-sm">
-        <span className="font-mono tabular-nums text-muted-foreground">{formatClock(currentTime)}</span>
+        <span className="font-mono tabular-nums text-muted-foreground">
+          {formatClock(currentTime)}
+        </span>
 
         <Button
           type="button"
@@ -298,7 +338,9 @@ export function AudioPlayer(props: AudioPlayerProps): React.JSX.Element {
           Back 5s
         </Button>
 
-        <span className="font-mono tabular-nums text-foreground">{formatClock(resolvedDuration)}</span>
+        <span className="font-mono tabular-nums text-foreground">
+          {formatClock(resolvedDuration)}
+        </span>
       </div>
     </div>
   )

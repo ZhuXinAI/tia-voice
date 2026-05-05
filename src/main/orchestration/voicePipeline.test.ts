@@ -332,4 +332,162 @@ describe('createVoicePipeline', () => {
       })
     )
   })
+
+  it('keeps transcription completed and requests copy fallback when no input is focused', async () => {
+    const actionExecutor = { execute: vi.fn().mockResolvedValue(undefined) }
+    const notifyInjectionFallback = vi.fn()
+    const historyStore = {
+      appendHistory: vi.fn(),
+      updateHistoryEntry: vi.fn(),
+      getHistoryEntry: vi.fn(),
+      saveAudioClip: vi.fn().mockResolvedValue(null),
+      readAudioClip: vi.fn()
+    }
+    const pipeline = createVoicePipeline({
+      contextProvider: {
+        captureSnapshot: vi.fn().mockResolvedValue({
+          isInputFocused: false,
+          selectedText: null,
+          provider: 'selection-hook',
+          capturedAt: 1
+        })
+      },
+      asrProvider: { transcribe: vi.fn().mockResolvedValue({ text: 'dictated text' }) },
+      llmProvider: { transform: vi.fn() },
+      actionExecutor,
+      getPostProcessPreset: () => ({
+        id: 'verbatim',
+        name: 'Verbatim',
+        systemPrompt: '',
+        builtIn: false,
+        enablePostProcessing: false
+      }),
+      sessionStore: {
+        begin: vi.fn().mockReturnValue({
+          id: 'session-1',
+          snapshot: {
+            isInputFocused: false,
+            selectedText: null,
+            provider: 'selection-hook',
+            capturedAt: 1
+          }
+        }),
+        getCurrent: vi.fn().mockReturnValue({
+          id: 'session-1',
+          snapshot: {
+            isInputFocused: false,
+            selectedText: null,
+            provider: 'selection-hook',
+            capturedAt: 1
+          }
+        }),
+        clear: vi.fn()
+      },
+      historyStore,
+      notifyChatWindow: vi.fn(),
+      notifyInjectionFallback,
+      hideRecordingBar: vi.fn()
+    })
+
+    await pipeline.beginCapture()
+    await pipeline.finishRecording({
+      mimeType: 'audio/webm',
+      buffer: new Uint8Array([1]),
+      durationMs: 1500
+    })
+
+    expect(actionExecutor.execute).toHaveBeenCalledWith({
+      kind: 'paste-text',
+      text: 'dictated text'
+    })
+    expect(historyStore.updateHistoryEntry).toHaveBeenCalledWith(
+      'session-1',
+      expect.objectContaining({
+        status: 'completed',
+        cleanedText: 'dictated text',
+        injectionStatus: 'needs-copy',
+        injectionReason: 'input-not-focused'
+      })
+    )
+    expect(notifyInjectionFallback).toHaveBeenCalledWith({
+      historyId: 'session-1',
+      text: 'dictated text',
+      reason: 'input-not-focused',
+      detail: undefined
+    })
+  })
+
+  it('does not fail the history item when paste fails after transcription succeeds', async () => {
+    const actionExecutor = {
+      execute: vi.fn().mockRejectedValue(new Error('Keyboard shortcut failed.'))
+    }
+    const notifyInjectionFallback = vi.fn()
+    const historyStore = {
+      appendHistory: vi.fn(),
+      updateHistoryEntry: vi.fn(),
+      getHistoryEntry: vi.fn(),
+      saveAudioClip: vi.fn().mockResolvedValue(null),
+      readAudioClip: vi.fn()
+    }
+    const pipeline = createVoicePipeline({
+      contextProvider: {
+        captureSnapshot: vi.fn().mockResolvedValue({
+          isInputFocused: true,
+          selectedText: null,
+          provider: 'selection-hook',
+          capturedAt: 1
+        })
+      },
+      asrProvider: { transcribe: vi.fn().mockResolvedValue({ text: 'dictated text' }) },
+      llmProvider: { transform: vi.fn() },
+      actionExecutor,
+      getPostProcessPreset: () => ({
+        id: 'verbatim',
+        name: 'Verbatim',
+        systemPrompt: '',
+        builtIn: false,
+        enablePostProcessing: false
+      }),
+      sessionStore: {
+        begin: vi.fn(),
+        getCurrent: vi.fn().mockReturnValue({
+          id: 'session-1',
+          snapshot: {
+            isInputFocused: true,
+            selectedText: null,
+            provider: 'selection-hook',
+            capturedAt: 1
+          }
+        }),
+        clear: vi.fn()
+      },
+      historyStore,
+      notifyChatWindow: vi.fn(),
+      notifyInjectionFallback,
+      hideRecordingBar: vi.fn()
+    })
+
+    await pipeline.finishRecording({
+      mimeType: 'audio/webm',
+      buffer: new Uint8Array([1]),
+      durationMs: 1500
+    })
+
+    expect(historyStore.updateHistoryEntry).toHaveBeenCalledWith(
+      'session-1',
+      expect.objectContaining({
+        status: 'completed',
+        cleanedText: 'dictated text',
+        injectionStatus: 'needs-copy',
+        injectionReason: 'paste-failed',
+        injectionDetail: 'Keyboard shortcut failed.'
+      })
+    )
+    expect(notifyInjectionFallback).toHaveBeenCalledWith({
+      historyId: 'session-1',
+      text: 'dictated text',
+      reason: 'paste-failed',
+      detail: 'Keyboard shortcut failed.'
+    })
+  })
 })

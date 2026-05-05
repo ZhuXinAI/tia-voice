@@ -3,11 +3,13 @@ import {
   app,
   BrowserWindow,
   clipboard as electronClipboard,
+  desktopCapturer,
   dialog,
   Menu,
   Tray,
   globalShortcut,
   nativeImage,
+  session,
   systemPreferences,
   shell,
   type NativeImage
@@ -38,13 +40,23 @@ import type {
   PermissionKind,
   PermissionStatePayload,
   PermissionStatus,
+  LiveCaptionPreferences,
   TtsStatePayload,
   ThemeMode
 } from '../ipc/channels'
 import { getDebugLogPath, logDebug } from '../logging/debugLogger'
+import { createLiveCaptionPipeline } from '../live-caption/liveCaptionPipeline'
+import { createMeetingStore } from '../meetings/meetingStore'
+import {
+  createMeetingAudioUrl,
+  registerMeetingAudioProtocol,
+  registerMeetingAudioProtocolPrivileges
+} from '../meetings/meetingAudioProtocol'
+import { createMeetingCapturePipeline } from '../meetings/meetingCapturePipeline'
 import { createEphemeralSessionStore } from '../orchestration/ephemeralSessionStore'
 import { createQuestionAnswerPipeline } from '../orchestration/questionAnswerPipeline'
 import { createVoicePipeline } from '../orchestration/voicePipeline'
+import { createGummyRealtimeTranscriptionClient } from '../providers/asr/GummyRealtimeTranscriptionClient'
 import { createOpenAiAsrProvider } from '../providers/asr/OpenAiAsrProvider'
 import { createQwenAsrProvider } from '../providers/asr/QwenAsrProvider'
 import {
@@ -55,9 +67,17 @@ import {
   createQwenCleanupProvider,
   createQwenQuestionAnswerProvider
 } from '../providers/llm/QwenCleanupProvider'
+import {
+  createMeetingPostProcessor,
+  createOpenAiMeetingLlmAdapter,
+  createQwenMeetingLlmAdapter
+} from '../providers/llm/MeetingPostProcessor'
 import { createCosyVoiceTtsProvider } from '../providers/tts/CosyVoiceTtsProvider'
 import type { PostProcessPresetRecord } from '../providers/llm/postProcessPrompts'
 import { createMainAppWindow } from '../windows/createMainAppWindow'
+import { createLiveCaptionConfigWindow } from '../windows/createLiveCaptionConfigWindow'
+import { createLiveCaptionOverlayWindow } from '../windows/createLiveCaptionOverlayWindow'
+import { createMeetingCaptureWindow } from '../windows/createMeetingCaptureWindow'
 import { createQuestionBarWindow } from '../windows/createQuestionBarWindow'
 import { createRecordingBarWindow } from '../windows/createRecordingBarWindow'
 import { createTtsPlayerWindow } from '../windows/createTtsPlayerWindow'
@@ -75,6 +95,8 @@ import type { TtsSource } from '../../shared/tts'
 
 const SHOW_MAIN_WINDOW_SHORTCUT = 'CommandOrControl+Shift+Space'
 const QUESTION_CAPTURE_SHORTCUT = 'Control+T'
+const MEETING_CAPTURE_SHORTCUT = 'Control+R'
+const LIVE_CAPTION_SHORTCUT = 'Control+L'
 const ACCESSIBILITY_PERMISSION_RECHECK_INTERVAL_MS = 30_000
 const ACCESSIBILITY_PERMISSION_PROMPT_COOLDOWN_MS = 5 * 60_000
 const HISTORY_PAGE_SIZE = 10
@@ -358,17 +380,26 @@ function toHistoryListItem(input: {
   cleanedText: string
   transcript: string
   status: 'pending' | 'completed' | 'failed'
+  injectionStatus?: MainAppStatePayload['history'][number]['injectionStatus']
+  injectionReason?: MainAppStatePayload['history'][number]['injectionReason']
+  injectionDetail?: string
   errorDetail?: string
   audio?: { fileName: string }
 }): MainAppStatePayload['history'][number] {
+  const copyText = input.cleanedText || input.transcript || ''
+
   return {
     id: input.id,
     createdAt: input.createdAt,
     title: input.transcript.slice(0, 36) || 'Voice transcription',
-    preview: input.cleanedText || input.transcript || '',
+    preview: copyText,
     status: input.status,
+    injectionStatus: input.injectionStatus,
+    injectionReason: input.injectionReason,
+    injectionDetail: input.injectionDetail,
     errorDetail: input.errorDetail,
-    hasAudio: Boolean(input.audio?.fileName)
+    hasAudio: Boolean(input.audio?.fileName),
+    canCopy: copyText.trim().length > 0
   }
 }
 
@@ -379,6 +410,9 @@ function buildHistoryPage(input: {
     cleanedText: string
     transcript: string
     status: 'pending' | 'completed' | 'failed'
+    injectionStatus?: MainAppStatePayload['history'][number]['injectionStatus']
+    injectionReason?: MainAppStatePayload['history'][number]['injectionReason']
+    injectionDetail?: string
     errorDetail?: string
     audio?: { fileName: string }
   }>
@@ -447,6 +481,7 @@ function buildMainAppState(input: {
   resolvedLanguage: AppLanguage
   themeMode: ThemeMode
   autoTextToSpeechEnabled: boolean
+  liveCaption: LiveCaptionPreferences
   dictionaryEntries: DictionaryEntryRecord[]
   postProcessPreset: import('../ipc/channels').PostProcessPresetId
   postProcessPresets: PostProcessPresetRecord[]
@@ -463,12 +498,16 @@ function buildMainAppState(input: {
   onboardingVisible: boolean
   permissions: AppPermissionSnapshot
   autoUpdate: MainAppStatePayload['autoUpdate']
+  dictationFallback: MainAppStatePayload['dictationFallback']
   history: Array<{
     id: string
     createdAt: number
     cleanedText: string
     transcript: string
     status: 'pending' | 'completed' | 'failed'
+    injectionStatus?: MainAppStatePayload['history'][number]['injectionStatus']
+    injectionReason?: MainAppStatePayload['history'][number]['injectionReason']
+    injectionDetail?: string
     errorDetail?: string
     audio?: { fileName: string }
   }>
@@ -571,6 +610,7 @@ function buildMainAppState(input: {
     features: {
       autoTextToSpeech: input.autoTextToSpeechEnabled
     },
+    liveCaption: { ...input.liveCaption },
     dictionaryEntries: input.dictionaryEntries.map((entry) => ({ ...entry })),
     postProcessPreset: input.postProcessPreset,
     postProcessPresets: input.postProcessPresets.map((preset) => ({ ...preset })),
@@ -656,6 +696,7 @@ function buildMainAppState(input: {
       microphone: buildPermissionState(input.permissions.microphone, input.resolvedLanguage)
     },
     autoUpdate: input.autoUpdate,
+    dictationFallback: input.dictationFallback,
     history: historyByTime.slice(0, HISTORY_PAGE_SIZE).map(toHistoryListItem),
     questionHistory: questionHistoryByTime
       .slice(0, HISTORY_PAGE_SIZE)
@@ -681,6 +722,7 @@ export async function bootstrapApplication(): Promise<void> {
 
   app.setName('TIA Voice')
   app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+  registerMeetingAudioProtocolPrivileges()
   await app.whenReady()
   logDebug('app', 'Application ready', {
     logPath: getDebugLogPath(),
@@ -691,19 +733,43 @@ export async function bootstrapApplication(): Promise<void> {
 
   electronApp.setAppUserModelId('com.buildmind.tia-voice')
 
+  session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: {
+        width: 0,
+        height: 0
+      }
+    })
+
+    callback({
+      video: sources[0],
+      audio: 'loopback'
+    })
+  })
+
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
 
   const preloadPath = join(__dirname, '../preload/index.js')
-  const [mainAppWindow, recordingBarWindow, questionBarWindow, ttsPlayerWindow] = await Promise.all(
-    [
-      createMainAppWindow(preloadPath, { showOnReady: false, load: false }),
-      createRecordingBarWindow(preloadPath, { load: false }),
-      createQuestionBarWindow(preloadPath, { load: false }),
-      createTtsPlayerWindow(preloadPath, { load: false })
-    ]
-  )
+  const [
+    mainAppWindow,
+    recordingBarWindow,
+    meetingCaptureWindow,
+    liveCaptionConfigWindow,
+    liveCaptionOverlayWindow,
+    questionBarWindow,
+    ttsPlayerWindow
+  ] = await Promise.all([
+    createMainAppWindow(preloadPath, { showOnReady: false, load: false }),
+    createRecordingBarWindow(preloadPath, { load: false }),
+    createMeetingCaptureWindow(preloadPath, { load: false }),
+    createLiveCaptionConfigWindow(preloadPath, { load: false }),
+    createLiveCaptionOverlayWindow(preloadPath, { load: false }),
+    createQuestionBarWindow(preloadPath, { load: false }),
+    createTtsPlayerWindow(preloadPath, { load: false })
+  ])
   const microphonePermissionState = createMicrophonePermissionState({
     platform: process.platform,
     getStatus: () => systemPreferences.getMediaAccessStatus('microphone'),
@@ -715,6 +781,11 @@ export async function bootstrapApplication(): Promise<void> {
   }
 
   const settingsStore = createSettingsStore(env.pushToTalkKey, app.getPath('userData'))
+  const meetingStore = createMeetingStore(join(app.getPath('userData'), 'meeting-captures'))
+  registerMeetingAudioProtocol({ meetingStore })
+  logDebug('meeting-capture', 'Meeting capture store initialized', {
+    totalCount: meetingStore.listRecentMeetings({ limit: 1 }).totalCount
+  })
   let activeTriggerKey = resolveStartupTriggerKey({
     configuredHotkey: settingsStore.get().hotkey,
     fallbackHotkey: env.pushToTalkKey
@@ -722,6 +793,9 @@ export async function bootstrapApplication(): Promise<void> {
   const windowManager = createWindowManager({
     mainAppWindow,
     recordingBarWindow,
+    meetingCaptureWindow,
+    liveCaptionConfigWindow,
+    liveCaptionOverlayWindow,
     questionBarWindow,
     ttsPlayerWindow
   })
@@ -735,6 +809,7 @@ export async function bootstrapApplication(): Promise<void> {
   let microphoneDialogVisible = false
   let microphoneCheckInFlight: Promise<void> | null = null
   let lastMicrophonePromptAt = 0
+  let latestDictationFallback: MainAppStatePayload['dictationFallback'] = null
 
   const getMicrophonePermissionSnapshot = (): PermissionSnapshot => {
     try {
@@ -787,6 +862,10 @@ export async function bootstrapApplication(): Promise<void> {
 
   const shouldEnableGlobalFeatures = (): boolean => {
     return settingsStore.isOnboardingComplete() && hasActiveProviderKey()
+  }
+
+  const shouldEnableMeetingCapture = (): boolean => {
+    return settingsStore.isOnboardingComplete() && settingsStore.hasDashscopeApiKey()
   }
 
   const resolveAccessibilityDialogWindow = (): BrowserWindow | null => {
@@ -1100,6 +1179,7 @@ export async function bootstrapApplication(): Promise<void> {
         resolvedLanguage,
         themeMode: settings.themeMode,
         autoTextToSpeechEnabled: settings.features.autoTextToSpeech,
+        liveCaption: settings.liveCaption,
         dictionaryEntries: settings.dictionaryEntries,
         postProcessPreset: settings.postProcessPreset,
         postProcessPresets: settings.postProcessPresets,
@@ -1119,6 +1199,7 @@ export async function bootstrapApplication(): Promise<void> {
         onboardingVisible: onboardingDialogVisible,
         permissions: getAppPermissionSnapshot(),
         autoUpdate: getAutoUpdateState(),
+        dictationFallback: latestDictationFallback,
         history: settings.history,
         questionHistory: settings.questionHistory
       })
@@ -1198,6 +1279,19 @@ export async function bootstrapApplication(): Promise<void> {
     apiKey: resolveOpenAiApiKey,
     model: () => settingsStore.getProviderModels('openai').llm
   })
+  const qwenMeetingPostProcessor = createMeetingPostProcessor({
+    adapter: createQwenMeetingLlmAdapter({
+      apiKey: resolveDashscopeApiKey,
+      baseUrl: env.dashscopeBaseUrl
+    }),
+    model: () => settingsStore.getProviderModels('dashscope').llm
+  })
+  const openAiMeetingPostProcessor = createMeetingPostProcessor({
+    adapter: createOpenAiMeetingLlmAdapter({
+      apiKey: resolveOpenAiApiKey
+    }),
+    model: () => settingsStore.getProviderModels('openai').llm
+  })
   const cosyVoiceTtsProvider = createCosyVoiceTtsProvider({
     apiKey: resolveDashscopeApiKey,
     baseUrl: env.dashscopeApiBaseUrl
@@ -1213,6 +1307,11 @@ export async function bootstrapApplication(): Promise<void> {
     | ReturnType<typeof createQwenQuestionAnswerProvider>
     | ReturnType<typeof createOpenAiQuestionAnswerProvider> => {
     return getSelectedProvider() === 'openai' ? openAiQuestionAnswerProvider : qwenQuestionProvider
+  }
+  const getCurrentMeetingPostProcessor = (): ReturnType<typeof createMeetingPostProcessor> => {
+    return getSelectedProvider() === 'openai'
+      ? openAiMeetingPostProcessor
+      : qwenMeetingPostProcessor
   }
 
   const captureQuestionContext = async (): Promise<ContextSelection | null> => {
@@ -1311,6 +1410,70 @@ export async function bootstrapApplication(): Promise<void> {
     questionCapturePhase === 'processing'
 
   const isDictationCaptureBusy = (): boolean => dictationCapturePhase !== 'idle'
+  let meetingCapturePipeline: ReturnType<typeof createMeetingCapturePipeline> | null = null
+  const isMeetingCaptureBusy = (): boolean =>
+    meetingCapturePipeline?.isMeetingCaptureBusy() === true
+  const liveCaptionPipeline = createLiveCaptionPipeline({
+    getPreferences: () => settingsStore.getLiveCaptionPreferences(),
+    setPreferences: (preferences) => {
+      settingsStore.setLiveCaptionPreferences(preferences)
+      syncAppState()
+    },
+    createTranscriptionClient: ({ preferences, onTranscript }) =>
+      createGummyRealtimeTranscriptionClient({
+        apiKey: resolveDashscopeApiKey,
+        sourceLanguage: preferences.sourceLanguage,
+        targetLanguage: preferences.targetLanguage,
+        onTranscript
+      }),
+    isMeetingCaptureBusy,
+    canStartStandalone: () => !isDictationCaptureBusy() && !isQuestionCaptureBusy(),
+    getStandaloneBusyReason: () => {
+      if (isDictationCaptureBusy()) {
+        return 'Finish the current dictation before starting Live Caption.'
+      }
+
+      if (isQuestionCaptureBusy()) {
+        return 'Finish the current Q&A capture before starting Live Caption.'
+      }
+
+      return 'Live Caption is not available right now.'
+    },
+    showConfigWindow: () => {
+      windowManager.showLiveCaptionConfig()
+    },
+    hideConfigWindow: () => {
+      windowManager.hideLiveCaptionConfig()
+    },
+    showOverlayWindow: () => {
+      windowManager.showLiveCaptionOverlay()
+    },
+    hideOverlayWindow: () => {
+      windowManager.hideLiveCaptionOverlay()
+    },
+    sendStartCaptureCommand: () => {
+      windowManager.sendLiveCaptionCommand({ type: 'start-capture' })
+    },
+    sendStopCaptureCommand: () => {
+      windowManager.sendLiveCaptionCommand({ type: 'stop-capture' })
+    },
+    setState: (state) => {
+      windowManager.setLiveCaptionState(state)
+    }
+  })
+
+  const showLiveCaptionFromShortcut = (): void => {
+    if (!settingsStore.hasDashscopeApiKey()) {
+      logDebug('live-caption', 'Opening Live Caption setup without a DashScope key')
+    }
+
+    if (liveCaptionPipeline.isLiveCaptionActive()) {
+      windowManager.showLiveCaptionOverlay()
+      return
+    }
+
+    liveCaptionPipeline.showConfiguration()
+  }
 
   const startDictation = async (source: 'global' | 'onboarding'): Promise<void> => {
     if (source === 'global' && !shouldEnableGlobalFeatures()) {
@@ -1333,6 +1496,13 @@ export async function bootstrapApplication(): Promise<void> {
       logDebug('hotkey', 'Ignored dictation trigger while question capture is active', {
         source,
         questionCapturePhase
+      })
+      return
+    }
+
+    if (isMeetingCaptureBusy()) {
+      logDebug('hotkey', 'Ignored dictation trigger while meeting capture is active', {
+        source
       })
       return
     }
@@ -1524,7 +1694,119 @@ export async function bootstrapApplication(): Promise<void> {
       return
     }
 
+    if (isMeetingCaptureBusy()) {
+      logDebug('question-answer', 'Ignored question toggle while meeting capture is active', {
+        source
+      })
+      return
+    }
+
     await startQuestionCapture(source)
+  }
+
+  meetingCapturePipeline = createMeetingCapturePipeline({
+    meetingStore,
+    getMicrophoneDeviceId: () => settingsStore.getMicrophone().deviceId,
+    createTranscriptionClient: ({ streamId, onTranscript }) => {
+      const liveCaptionPreferences = settingsStore.getLiveCaptionPreferences()
+      return createGummyRealtimeTranscriptionClient({
+        apiKey: resolveDashscopeApiKey,
+        sourceLanguage: streamId === 'system' ? liveCaptionPreferences.sourceLanguage : undefined,
+        targetLanguage: streamId === 'system' ? liveCaptionPreferences.targetLanguage : null,
+        onTranscript
+      })
+    },
+    publishSystemLiveCaption: (update) => {
+      liveCaptionPipeline.receiveMeetingTranscript(update)
+    },
+    meetingPostProcessor: {
+      process: (input) => getCurrentMeetingPostProcessor().process(input)
+    },
+    showMeetingCapture: (command) => {
+      windowManager.showMeetingCapture(command)
+    },
+    stopMeetingCapture: () => {
+      windowManager.stopMeetingCapture()
+    },
+    hideMeetingCapture: () => {
+      windowManager.hideMeetingCapture()
+    },
+    setMeetingCaptureState: (state) => {
+      windowManager.setMeetingCaptureState(state)
+    }
+  })
+
+  const toggleMeetingCapture = async (): Promise<void> => {
+    if (!shouldEnableMeetingCapture()) {
+      logDebug('meeting-capture', 'Ignored meeting capture shortcut before setup completed', {
+        onboardingCompleted: settingsStore.isOnboardingComplete(),
+        dashscopeConfigured: settingsStore.hasDashscopeApiKey()
+      })
+      return
+    }
+
+    if (isDictationCaptureBusy()) {
+      logDebug('meeting-capture', 'Ignored meeting capture shortcut while dictation is active', {
+        dictationCapturePhase
+      })
+      return
+    }
+
+    if (isQuestionCaptureBusy()) {
+      logDebug(
+        'meeting-capture',
+        'Ignored meeting capture shortcut while question capture is active',
+        {
+          questionCapturePhase
+        }
+      )
+      return
+    }
+
+    if (meetingCapturePipeline?.isMeetingCaptureBusy()) {
+      await meetingCapturePipeline.finishMeetingCapture('shortcut')
+      return
+    }
+
+    await meetingCapturePipeline?.beginMeetingCapture()
+  }
+
+  const copyHistoryTextToClipboard = async (entryId: string): Promise<void> => {
+    const entry = settingsStore.getHistoryEntry(entryId)
+    const text = (entry?.cleanedText || entry?.transcript || '').trim()
+    if (!entry || !text) {
+      throw new Error('No dictated text is available for this history item.')
+    }
+
+    electronClipboard.writeText(text)
+    logDebug('voice-pipeline', 'Copied history text to clipboard', {
+      historyId: entryId,
+      textLength: text.length
+    })
+  }
+
+  const notifyDictationFallback = (input: {
+    historyId: string
+    text: string
+    reason: NonNullable<MainAppStatePayload['dictationFallback']>['reason']
+    detail?: string
+  }): void => {
+    const text = input.text.trim()
+    latestDictationFallback = {
+      historyId: input.historyId,
+      createdAt: Date.now(),
+      preview: text.slice(0, 240),
+      reason: input.reason,
+      detail: input.detail
+    }
+    logDebug('voice-pipeline', 'Dictation text needs manual copy fallback', {
+      historyId: input.historyId,
+      reason: input.reason,
+      detail: input.detail,
+      textLength: text.length
+    })
+    syncAppState()
+    bringPrimaryWindowToFront()
   }
 
   const voicePipeline = createVoicePipeline({
@@ -1549,6 +1831,7 @@ export async function bootstrapApplication(): Promise<void> {
     }),
     getPostProcessPreset: () => settingsStore.getSelectedPostProcessPreset(),
     getDictionaryEntries: () => settingsStore.getDictionaryEntries(),
+    notifyInjectionFallback: notifyDictationFallback,
     historyStore: {
       appendHistory: (entry) => {
         settingsStore.appendHistory(entry)
@@ -1722,6 +2005,12 @@ export async function bootstrapApplication(): Promise<void> {
     getAppState: () => windowManager.getAppState(),
     getChatState: () => windowManager.getChatState(),
     getTtsState: () => windowManager.getTtsState(),
+    getLiveCaptionState: () => liveCaptionPipeline.getState(),
+    getLiveCaptionPreferences: () => settingsStore.getLiveCaptionPreferences(),
+    setLiveCaptionPreferences: (preferences) => {
+      settingsStore.setLiveCaptionPreferences(preferences)
+      syncAppState()
+    },
     getHistoryPage: (input) => {
       const page = settingsStore.getHistoryPage(input)
       return buildHistoryPage(page)
@@ -1745,10 +2034,38 @@ export async function bootstrapApplication(): Promise<void> {
         llmProcessing: entry.llmProcessing,
         transcript: entry.transcript,
         cleanedText: entry.cleanedText,
+        injectionStatus: entry.injectionStatus,
+        injectionReason: entry.injectionReason,
+        injectionDetail: entry.injectionDetail,
         errorDetail: entry.errorDetail,
         audio: audio
           ? {
               bytes: audio.buffer,
+              mimeType: audio.mimeType,
+              durationMs: audio.durationMs,
+              sizeBytes: audio.sizeBytes
+            }
+          : undefined
+      }
+    },
+    copyHistoryText: copyHistoryTextToClipboard,
+    getMeetingHistoryPage: (input) => {
+      return meetingStore.listRecentMeetings(input)
+    },
+    getMeetingDetail: async (meetingId) => {
+      const meeting = meetingStore.getMeeting(meetingId)
+      if (!meeting) {
+        return null
+      }
+
+      const audio = meetingStore.getMixedAudioFile(meetingId)
+
+      return {
+        ...meeting,
+        transcriptSegments: meetingStore.getTranscriptSegments(meetingId),
+        audio: audio
+          ? {
+              url: createMeetingAudioUrl(meetingId, meeting.updatedAt),
               mimeType: audio.mimeType,
               durationMs: audio.durationMs,
               sizeBytes: audio.sizeBytes
@@ -1768,6 +2085,30 @@ export async function bootstrapApplication(): Promise<void> {
     finishQuestionRecording: async (artifact) => {
       questionCapturePhase = 'processing'
       await questionAnswerPipeline.finishRecording(artifact)
+    },
+    sendMeetingPcmChunk: (input) => {
+      meetingCapturePipeline?.receivePcmChunk(input)
+    },
+    finishMeetingMixedAudio: async (artifact) => {
+      await meetingCapturePipeline?.receiveMixedAudio(artifact)
+    },
+    requestFinishMeeting: async () => {
+      await meetingCapturePipeline?.finishMeetingCapture('renderer')
+    },
+    reportMeetingCaptureFailure: (detail) => {
+      meetingCapturePipeline?.failMeetingCapture(detail)
+    },
+    startLiveCaption: async (preferences) => {
+      return liveCaptionPipeline.startLiveCaption(preferences)
+    },
+    stopLiveCaption: async (source) => {
+      await liveCaptionPipeline.stopLiveCaption(source)
+    },
+    sendLiveCaptionPcmChunk: (input) => {
+      liveCaptionPipeline.receivePcmChunk(input)
+    },
+    reportLiveCaptionCaptureFailure: (detail) => {
+      liveCaptionPipeline.failLiveCaption(detail)
     },
     cancelQuestionRecording: () => {
       cancelQuestionCapture('renderer')
@@ -1958,6 +2299,9 @@ export async function bootstrapApplication(): Promise<void> {
   await Promise.all([
     loadRendererWindow(mainAppWindow, 'main-app'),
     loadRendererWindow(recordingBarWindow, 'recording-bar'),
+    loadRendererWindow(meetingCaptureWindow, 'meeting-capture'),
+    loadRendererWindow(liveCaptionConfigWindow, 'live-caption-config'),
+    loadRendererWindow(liveCaptionOverlayWindow, 'live-caption-overlay'),
     loadRendererWindow(questionBarWindow, 'question-bar'),
     loadRendererWindow(ttsPlayerWindow, 'tts-player')
   ])
@@ -2003,6 +2347,36 @@ export async function bootstrapApplication(): Promise<void> {
     })
   }
 
+  const meetingCaptureShortcutReady = globalShortcut.register(MEETING_CAPTURE_SHORTCUT, () => {
+    logDebug('hotkey', 'Meeting capture global shortcut fired', {
+      shortcut: MEETING_CAPTURE_SHORTCUT
+    })
+    void toggleMeetingCapture()
+  })
+
+  if (!meetingCaptureShortcutReady) {
+    console.error(
+      `[shortcut] Failed to register "${MEETING_CAPTURE_SHORTCUT}" for meeting capture.`
+    )
+    logDebug('hotkey', 'Failed to register meeting capture global shortcut', {
+      shortcut: MEETING_CAPTURE_SHORTCUT
+    })
+  }
+
+  const liveCaptionShortcutReady = globalShortcut.register(LIVE_CAPTION_SHORTCUT, () => {
+    logDebug('hotkey', 'Live Caption global shortcut fired', {
+      shortcut: LIVE_CAPTION_SHORTCUT
+    })
+    showLiveCaptionFromShortcut()
+  })
+
+  if (!liveCaptionShortcutReady) {
+    console.error(`[shortcut] Failed to register "${LIVE_CAPTION_SHORTCUT}" for Live Caption.`)
+    logDebug('hotkey', 'Failed to register Live Caption global shortcut', {
+      shortcut: LIVE_CAPTION_SHORTCUT
+    })
+  }
+
   initializeAutoUpdater({
     onStateChange: () => {
       syncAppState()
@@ -2019,6 +2393,24 @@ export async function bootstrapApplication(): Promise<void> {
 
     event.preventDefault()
     mainAppWindow.hide()
+  })
+
+  liveCaptionConfigWindow.on('close', (event) => {
+    if (isQuitting) {
+      return
+    }
+
+    event.preventDefault()
+    windowManager.hideLiveCaptionConfig()
+  })
+
+  liveCaptionOverlayWindow.on('close', (event) => {
+    if (isQuitting) {
+      return
+    }
+
+    event.preventDefault()
+    void liveCaptionPipeline.stopLiveCaption('overlay-close')
   })
 
   app.on('activate', () => {
@@ -2043,7 +2435,10 @@ export async function bootstrapApplication(): Promise<void> {
     if (hotkeyServiceStarted) {
       hotkeyService.stop()
     }
+    void liveCaptionPipeline.stopLiveCaption('internal')
     globalShortcut.unregister(QUESTION_CAPTURE_SHORTCUT)
+    globalShortcut.unregister(MEETING_CAPTURE_SHORTCUT)
+    globalShortcut.unregister(LIVE_CAPTION_SHORTCUT)
     globalShortcut.unregister(SHOW_MAIN_WINDOW_SHORTCUT)
     windowManager.closeAllWindows()
     tray?.destroy()

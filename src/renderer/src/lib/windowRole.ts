@@ -1,6 +1,9 @@
 export type WindowRole =
   | 'main-app'
   | 'recording-bar'
+  | 'meeting-capture'
+  | 'live-caption-config'
+  | 'live-caption-overlay'
   | 'question-bar'
   | 'chat'
   | 'tts-player'
@@ -11,6 +14,9 @@ export function getWindowRoleFromLocation(search = window.location.search): Wind
 
   if (
     role === 'recording-bar' ||
+    role === 'meeting-capture' ||
+    role === 'live-caption-config' ||
+    role === 'live-caption-overlay' ||
     role === 'question-bar' ||
     role === 'chat' ||
     role === 'tts-player' ||

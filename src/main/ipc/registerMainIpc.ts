@@ -12,16 +12,46 @@ import {
 } from './channels'
 import type { RecordingArtifact } from '../recording/types'
 import { getDebugLogPath, logDebug } from '../logging/debugLogger'
+import type { MeetingStreamId } from '../meetings/types'
+import {
+  normalizeLiveCaptionPreferences,
+  type LiveCaptionPreferences
+} from '../../shared/liveCaption'
+
+export type MeetingPcmChunkInput = {
+  streamId: MeetingStreamId
+  chunk: Uint8Array
+  capturedAt: number
+}
+
+export type LiveCaptionPcmChunkInput = {
+  chunk: Uint8Array
+  capturedAt: number
+}
 
 export function registerMainIpc(input: {
   getAppState: () => unknown
   getChatState: () => unknown
   getTtsState: () => unknown
+  getLiveCaptionState: () => unknown
+  getLiveCaptionPreferences: () => LiveCaptionPreferences
+  setLiveCaptionPreferences: (preferences: LiveCaptionPreferences) => void
   getHistoryPage: (input?: { offset?: number; limit?: number }) => unknown
   getQuestionHistoryPage: (input?: { offset?: number; limit?: number }) => unknown
   getHistoryEntryDebug: (entryId: string) => Promise<unknown>
+  copyHistoryText: (entryId: string) => Promise<void>
   finishRecording: (artifact: RecordingArtifact) => Promise<void>
   finishQuestionRecording: (artifact: RecordingArtifact) => Promise<void>
+  sendMeetingPcmChunk: (input: MeetingPcmChunkInput) => void
+  finishMeetingMixedAudio: (artifact: RecordingArtifact) => Promise<void>
+  requestFinishMeeting: () => Promise<void>
+  reportMeetingCaptureFailure: (detail: string) => void
+  startLiveCaption: (preferences: LiveCaptionPreferences) => Promise<boolean>
+  stopLiveCaption: (source: 'renderer' | 'overlay-close') => Promise<void>
+  sendLiveCaptionPcmChunk: (input: LiveCaptionPcmChunkInput) => void
+  reportLiveCaptionCaptureFailure: (detail: string) => void
+  getMeetingHistoryPage: (input?: { offset?: number; limit?: number }) => unknown
+  getMeetingDetail: (meetingId: string) => Promise<unknown>
   cancelQuestionRecording: () => void
   reportRecordingFailure: (detail: string) => void
   reportQuestionRecordingFailure: (detail: string) => void
@@ -76,14 +106,28 @@ export function registerMainIpc(input: {
   ipcMain.removeHandler(IPC_CHANNELS.app.getState)
   ipcMain.removeHandler(IPC_CHANNELS.chat.getState)
   ipcMain.removeHandler(IPC_CHANNELS.tts.getState)
+  ipcMain.removeHandler(IPC_CHANNELS.liveCaption.getState)
+  ipcMain.removeHandler(IPC_CHANNELS.liveCaption.getPreferences)
+  ipcMain.removeHandler(IPC_CHANNELS.liveCaption.setPreferences)
   ipcMain.removeHandler(IPC_CHANNELS.app.getHistoryPage)
   ipcMain.removeHandler(IPC_CHANNELS.app.getQuestionHistoryPage)
   ipcMain.removeHandler(IPC_CHANNELS.app.getHistoryEntryDebug)
+  ipcMain.removeHandler(IPC_CHANNELS.app.copyHistoryText)
   ipcMain.removeHandler(IPC_CHANNELS.recording.complete)
   ipcMain.removeHandler(IPC_CHANNELS.recording.failed)
   ipcMain.removeHandler(IPC_CHANNELS.questionRecording.complete)
   ipcMain.removeHandler(IPC_CHANNELS.questionRecording.failed)
   ipcMain.removeHandler(IPC_CHANNELS.questionRecording.cancel)
+  ipcMain.removeHandler(IPC_CHANNELS.meetingCapture.pcmChunk)
+  ipcMain.removeHandler(IPC_CHANNELS.meetingCapture.mixedAudioComplete)
+  ipcMain.removeHandler(IPC_CHANNELS.meetingCapture.finishRequested)
+  ipcMain.removeHandler(IPC_CHANNELS.meetingCapture.failed)
+  ipcMain.removeHandler(IPC_CHANNELS.meetingCapture.getHistoryPage)
+  ipcMain.removeHandler(IPC_CHANNELS.meetingCapture.getDetail)
+  ipcMain.removeHandler(IPC_CHANNELS.liveCaption.start)
+  ipcMain.removeHandler(IPC_CHANNELS.liveCaption.stop)
+  ipcMain.removeHandler(IPC_CHANNELS.liveCaption.pcmChunk)
+  ipcMain.removeHandler(IPC_CHANNELS.liveCaption.captureFailed)
   ipcMain.removeHandler(IPC_CHANNELS.app.retryHistory)
   ipcMain.removeHandler(IPC_CHANNELS.app.startDictation)
   ipcMain.removeHandler(IPC_CHANNELS.app.stopDictation)
@@ -132,6 +176,11 @@ export function registerMainIpc(input: {
   ipcMain.handle(IPC_CHANNELS.app.getState, () => input.getAppState())
   ipcMain.handle(IPC_CHANNELS.chat.getState, () => input.getChatState())
   ipcMain.handle(IPC_CHANNELS.tts.getState, () => input.getTtsState())
+  ipcMain.handle(IPC_CHANNELS.liveCaption.getState, () => input.getLiveCaptionState())
+  ipcMain.handle(IPC_CHANNELS.liveCaption.getPreferences, () => input.getLiveCaptionPreferences())
+  ipcMain.handle(IPC_CHANNELS.liveCaption.setPreferences, (_event, value: unknown) => {
+    input.setLiveCaptionPreferences(normalizeLiveCaptionPreferences(value))
+  })
   ipcMain.handle(
     IPC_CHANNELS.app.getHistoryPage,
     (_event, pageInput: { offset?: unknown; limit?: unknown } | undefined) => {
@@ -169,6 +218,13 @@ export function registerMainIpc(input: {
 
     return input.getHistoryEntryDebug(entryId)
   })
+  ipcMain.handle(IPC_CHANNELS.app.copyHistoryText, async (_event, entryId: unknown) => {
+    if (typeof entryId !== 'string' || entryId.trim() === '') {
+      throw new Error('A valid history item is required.')
+    }
+
+    await input.copyHistoryText(entryId)
+  })
   ipcMain.handle(IPC_CHANNELS.recording.complete, async (_event, artifact: RecordingArtifact) => {
     await input.finishRecording({
       ...artifact,
@@ -194,6 +250,123 @@ export function registerMainIpc(input: {
   })
   ipcMain.handle(IPC_CHANNELS.questionRecording.cancel, async () => {
     input.cancelQuestionRecording()
+  })
+  ipcMain.handle(
+    IPC_CHANNELS.meetingCapture.pcmChunk,
+    (
+      _event,
+      payload:
+        | {
+            streamId?: unknown
+            chunk?: unknown
+            capturedAt?: unknown
+          }
+        | undefined
+    ) => {
+      if (payload?.streamId !== 'microphone' && payload?.streamId !== 'system') {
+        throw new Error('Meeting audio chunk stream id is invalid.')
+      }
+
+      const rawChunk = payload.chunk
+      const chunk =
+        rawChunk instanceof Uint8Array
+          ? rawChunk
+          : Array.isArray(rawChunk)
+            ? new Uint8Array(rawChunk)
+            : null
+
+      if (!chunk) {
+        throw new Error('Meeting audio chunk payload is invalid.')
+      }
+
+      input.sendMeetingPcmChunk({
+        streamId: payload.streamId,
+        chunk,
+        capturedAt:
+          typeof payload.capturedAt === 'number' && Number.isFinite(payload.capturedAt)
+            ? payload.capturedAt
+            : Date.now()
+      })
+    }
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.meetingCapture.mixedAudioComplete,
+    async (_event, artifact: RecordingArtifact) => {
+      await input.finishMeetingMixedAudio({
+        ...artifact,
+        buffer:
+          artifact.buffer instanceof Uint8Array ? artifact.buffer : new Uint8Array(artifact.buffer)
+      })
+    }
+  )
+  ipcMain.handle(IPC_CHANNELS.meetingCapture.finishRequested, async () => {
+    await input.requestFinishMeeting()
+  })
+  ipcMain.handle(IPC_CHANNELS.meetingCapture.failed, async (_event, detail: string) => {
+    input.reportMeetingCaptureFailure(detail)
+  })
+  ipcMain.handle(
+    IPC_CHANNELS.meetingCapture.getHistoryPage,
+    (_event, pageInput: { offset?: unknown; limit?: unknown } | undefined) => {
+      return input.getMeetingHistoryPage({
+        offset:
+          typeof pageInput?.offset === 'number' && Number.isFinite(pageInput.offset)
+            ? pageInput.offset
+            : undefined,
+        limit:
+          typeof pageInput?.limit === 'number' && Number.isFinite(pageInput.limit)
+            ? pageInput.limit
+            : undefined
+      })
+    }
+  )
+  ipcMain.handle(IPC_CHANNELS.meetingCapture.getDetail, async (_event, meetingId: unknown) => {
+    if (typeof meetingId !== 'string' || meetingId.trim() === '') {
+      return null
+    }
+
+    return input.getMeetingDetail(meetingId)
+  })
+  ipcMain.handle(IPC_CHANNELS.liveCaption.start, async (_event, value: unknown) => {
+    return input.startLiveCaption(normalizeLiveCaptionPreferences(value))
+  })
+  ipcMain.handle(IPC_CHANNELS.liveCaption.stop, async (_event, source: unknown) => {
+    await input.stopLiveCaption(source === 'overlay-close' ? 'overlay-close' : 'renderer')
+  })
+  ipcMain.handle(
+    IPC_CHANNELS.liveCaption.pcmChunk,
+    (
+      _event,
+      payload:
+        | {
+            chunk?: unknown
+            capturedAt?: unknown
+          }
+        | undefined
+    ) => {
+      const rawChunk = payload?.chunk
+      const chunk =
+        rawChunk instanceof Uint8Array
+          ? rawChunk
+          : Array.isArray(rawChunk)
+            ? new Uint8Array(rawChunk)
+            : null
+
+      if (!chunk) {
+        throw new Error('Live Caption audio chunk payload is invalid.')
+      }
+
+      input.sendLiveCaptionPcmChunk({
+        chunk,
+        capturedAt:
+          typeof payload?.capturedAt === 'number' && Number.isFinite(payload.capturedAt)
+            ? payload.capturedAt
+            : Date.now()
+      })
+    }
+  )
+  ipcMain.handle(IPC_CHANNELS.liveCaption.captureFailed, async (_event, detail: string) => {
+    input.reportLiveCaptionCaptureFailure(detail)
   })
   ipcMain.handle(IPC_CHANNELS.app.retryHistory, async (_event, entryId: string) => {
     await input.retryHistoryEntry(entryId)

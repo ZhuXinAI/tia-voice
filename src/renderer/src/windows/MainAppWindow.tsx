@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 
 import {
@@ -12,6 +12,7 @@ import {
   retryHistoryEntry,
   deleteDictionaryEntry,
   createPostProcessPreset,
+  copyHistoryText,
   saveDictionaryEntry,
   saveDashscopeApiKey,
   saveOpenAiApiKey,
@@ -41,10 +42,17 @@ import { getNavigatorPreferredLocales, resolveAppLanguage } from '../../../share
 
 import { defaultMainAppState } from './main-app/defaults'
 import { DictionaryRoute } from './main-app/DictionaryRoute'
+import {
+  CopyNoticeToast,
+  DictationFallbackToast,
+  type CopyNoticeState,
+  type DictationFallbackToastState
+} from './main-app/DictationCopyToast'
 import { HomeRoute } from './main-app/HomeRoute'
 import { HistoryDialog } from './main-app/HistoryDialog'
 import { HistoryDebugDialog } from './main-app/HistoryDebugDialog'
 import { MainAppLayout } from './main-app/MainAppLayout'
+import { MeetingsRoute } from './main-app/MeetingsRoute'
 import { OnboardingDialog } from './main-app/OnboardingDialog'
 import { PresetsRoute } from './main-app/PresetsRoute'
 import { QuestionAnswerRoute } from './main-app/QuestionAnswerRoute'
@@ -63,6 +71,11 @@ export default function MainAppWindow(): React.JSX.Element {
     null
   )
   const [historyDetailLoading, setHistoryDetailLoading] = useState(false)
+  const [dictationFallbackToast, setDictationFallbackToast] =
+    useState<DictationFallbackToastState | null>(null)
+  const [copyNotice, setCopyNotice] = useState<CopyNoticeState | null>(null)
+  const [copyingHistoryId, setCopyingHistoryId] = useState<string | null>(null)
+  const lastDictationFallbackKey = useRef<string | null>(null)
 
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general')
@@ -99,6 +112,30 @@ export default function MainAppWindow(): React.JSX.Element {
   useEffect(() => {
     setOnboardingOpen(state.onboarding.visible)
   }, [state.onboarding.visible])
+
+  useEffect(() => {
+    const fallback = state.dictationFallback
+    if (!fallback) {
+      return
+    }
+
+    const fallbackKey = `${fallback.historyId}:${fallback.createdAt}`
+    if (lastDictationFallbackKey.current === fallbackKey) {
+      return
+    }
+
+    lastDictationFallbackKey.current = fallbackKey
+    setDictationFallbackToast(fallback)
+  }, [state.dictationFallback])
+
+  useEffect(() => {
+    if (!copyNotice) {
+      return
+    }
+
+    const timeout = window.setTimeout(() => setCopyNotice(null), 2200)
+    return () => window.clearTimeout(timeout)
+  }, [copyNotice])
 
   useEffect(() => {
     const rootElement = document.documentElement
@@ -150,6 +187,30 @@ export default function MainAppWindow(): React.JSX.Element {
         return next
       })
     }
+  }
+
+  const handleCopyHistoryText = async (entryId: string): Promise<boolean> => {
+    setCopyingHistoryId(entryId)
+
+    try {
+      await copyHistoryText(entryId)
+      setCopyNotice({ id: Date.now(), status: 'copied' })
+      return true
+    } catch {
+      setCopyNotice({ id: Date.now(), status: 'failed' })
+      return false
+    } finally {
+      setCopyingHistoryId((current) => (current === entryId ? null : current))
+    }
+  }
+
+  const handleCopyFallbackText = (entryId: string): void => {
+    void (async () => {
+      const copied = await handleCopyHistoryText(entryId)
+      if (copied) {
+        setDictationFallbackToast(null)
+      }
+    })()
   }
 
   const handleOpenHistoryDetails = async (entry: MainAppHistoryEntry): Promise<void> => {
@@ -432,6 +493,7 @@ export default function MainAppWindow(): React.JSX.Element {
                   retrying={retrying}
                   onOpenDetails={(entry) => void handleOpenHistoryDetails(entry)}
                   onShowAll={() => setHistoryListOpen(true)}
+                  onCopy={(entryId) => void handleCopyHistoryText(entryId)}
                   onRetry={handleRetry}
                 />
               }
@@ -446,6 +508,8 @@ export default function MainAppWindow(): React.JSX.Element {
                 />
               }
             />
+
+            <Route path="meetings" element={<MeetingsRoute />} />
 
             <Route
               path="dictionary"
@@ -539,6 +603,7 @@ export default function MainAppWindow(): React.JSX.Element {
           onPreviousPage={historyPagination.goToPreviousPage}
           onNextPage={historyPagination.goToNextPage}
           onOpenDetails={handleOpenHistoryDetailsFromDialog}
+          onCopy={(entryId) => void handleCopyHistoryText(entryId)}
           onRetry={handleRetry}
         />
 
@@ -554,6 +619,14 @@ export default function MainAppWindow(): React.JSX.Element {
           onComplete={handleCompleteOnboarding}
           onSkip={handleSkipOnboarding}
         />
+
+        <DictationFallbackToast
+          fallback={dictationFallbackToast}
+          copying={copyingHistoryId === dictationFallbackToast?.historyId}
+          onCopy={handleCopyFallbackText}
+          onDismiss={() => setDictationFallbackToast(null)}
+        />
+        <CopyNoticeToast notice={copyNotice} />
       </HashRouter>
     </I18nProvider>
   )

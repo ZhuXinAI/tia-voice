@@ -1,4 +1,5 @@
 import { DEFAULT_DICTIONARY_ENTRIES } from '../../../../shared/dictionary'
+import { DEFAULT_LIVE_CAPTION_PREFERENCES } from '../../../../shared/liveCaption'
 
 import type { MainAppState } from './types'
 
@@ -67,6 +68,7 @@ export const defaultMainAppState: MainAppState = {
   features: {
     autoTextToSpeech: false
   },
+  liveCaption: DEFAULT_LIVE_CAPTION_PREFERENCES,
   dictionaryEntries: DEFAULT_DICTIONARY_ENTRIES.map((entry) => ({ ...entry })),
   postProcessPreset: 'formal',
   postProcessPresets: [
@@ -128,6 +130,7 @@ export const defaultMainAppState: MainAppState = {
     downloadProgressPercent: null,
     message: 'Automatic updates are only available in packaged builds.'
   },
+  dictationFallback: null,
   history: [],
   questionHistory: []
 }

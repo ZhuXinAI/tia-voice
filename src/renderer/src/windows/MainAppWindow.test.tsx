@@ -136,6 +136,7 @@ const baseState = {
     downloadProgressPercent: null,
     message: null
   },
+  dictationFallback: null,
   history: [],
   questionHistory: []
 }
@@ -184,7 +185,10 @@ const onboardingState = {
 
 const {
   getHistoryPageMock,
+  getMeetingHistoryPageMock,
+  getMeetingDetailMock,
   getHistoryEntryDebugMock,
+  copyHistoryTextMock,
   getMainAppStateMock,
   subscribeToAppStateMock,
   retryHistoryEntryMock,
@@ -212,7 +216,10 @@ const {
   setProviderLlmModelMock
 } = vi.hoisted(() => ({
   getHistoryPageMock: vi.fn(),
+  getMeetingHistoryPageMock: vi.fn(),
+  getMeetingDetailMock: vi.fn(),
   getHistoryEntryDebugMock: vi.fn(),
+  copyHistoryTextMock: vi.fn(),
   getMainAppStateMock: vi.fn(),
   subscribeToAppStateMock: vi.fn(),
   retryHistoryEntryMock: vi.fn(),
@@ -245,7 +252,10 @@ vi.mock('../lib/ipc', () => ({
   createPostProcessPreset: createPostProcessPresetMock,
   resetPostProcessPreset: resetPostProcessPresetMock,
   getHistoryPage: getHistoryPageMock,
+  getMeetingHistoryPage: getMeetingHistoryPageMock,
+  getMeetingDetail: getMeetingDetailMock,
   getHistoryEntryDebug: getHistoryEntryDebugMock,
+  copyHistoryText: copyHistoryTextMock,
   getMainAppState: getMainAppStateMock,
   resetOnboarding: resetOnboardingMock,
   retryHistoryEntry: retryHistoryEntryMock,
@@ -291,7 +301,10 @@ describe('MainAppWindow', () => {
 
     getMainAppStateMock.mockReset()
     getHistoryPageMock.mockReset()
+    getMeetingHistoryPageMock.mockReset()
+    getMeetingDetailMock.mockReset()
     getHistoryEntryDebugMock.mockReset()
+    copyHistoryTextMock.mockReset()
     subscribeToAppStateMock.mockReset()
     retryHistoryEntryMock.mockReset()
     saveDictionaryEntryMock.mockReset()
@@ -323,7 +336,13 @@ describe('MainAppWindow', () => {
       items: [],
       totalCount: 0
     })
+    getMeetingHistoryPageMock.mockResolvedValue({
+      items: [],
+      totalCount: 0
+    })
+    getMeetingDetailMock.mockResolvedValue(null)
     getHistoryEntryDebugMock.mockResolvedValue(null)
+    copyHistoryTextMock.mockResolvedValue(undefined)
     retryHistoryEntryMock.mockResolvedValue(undefined)
     saveDictionaryEntryMock.mockResolvedValue({
       id: 'qwen',
@@ -602,6 +621,200 @@ describe('MainAppWindow', () => {
     })
   })
 
+  it('lists meeting captures from the meetings route', async () => {
+    getMeetingHistoryPageMock.mockResolvedValue({
+      totalCount: 1,
+      items: [
+        {
+          id: 'meeting-1',
+          createdAt: 1,
+          updatedAt: 1,
+          startedAt: 1,
+          endedAt: 61_000,
+          durationMs: 60_000,
+          status: 'completed',
+          llmProcessing: 'completed',
+          title: 'Roadmap Sync',
+          summary: 'The team aligned on meeting capture beta scope.',
+          polishedTranscript: 'You: We can ship the beta.',
+          audio: {
+            fileName: 'audio.webm',
+            mimeType: 'audio/webm',
+            durationMs: 60_000,
+            sizeBytes: 2048
+          },
+          transcriptFileName: 'raw-transcript.json'
+        }
+      ]
+    })
+
+    render(<MainAppWindow />)
+
+    const meetingsLink = await screen.findByRole('link', { name: /meetings/i })
+    fireEvent.click(meetingsLink)
+
+    expect(await screen.findByRole('heading', { name: 'Meetings' })).toBeInTheDocument()
+    expect(await screen.findByText('Roadmap Sync')).toBeInTheDocument()
+    expect(screen.getByText(/meeting capture beta scope/i)).toBeInTheDocument()
+    expect(meetingsLink).toHaveAttribute('data-active', 'true')
+  })
+
+  it('opens meeting detail with summary, transcripts, and audio playback', async () => {
+    getMeetingHistoryPageMock.mockResolvedValue({
+      totalCount: 1,
+      items: [
+        {
+          id: 'meeting-1',
+          createdAt: 1,
+          updatedAt: 1,
+          startedAt: 1,
+          endedAt: 61_000,
+          durationMs: 60_000,
+          status: 'completed',
+          llmProcessing: 'completed',
+          title: 'Roadmap Sync',
+          summary: 'The team aligned on meeting capture beta scope.',
+          polishedTranscript: 'You: We can ship the beta.\nOthers: I agree.',
+          audio: {
+            fileName: 'audio.webm',
+            mimeType: 'audio/webm',
+            durationMs: 60_000,
+            sizeBytes: 2048
+          },
+          transcriptFileName: 'raw-transcript.json'
+        }
+      ]
+    })
+    getMeetingDetailMock.mockResolvedValue({
+      id: 'meeting-1',
+      createdAt: 1,
+      updatedAt: 1,
+      startedAt: 1,
+      endedAt: 61_000,
+      durationMs: 60_000,
+      status: 'completed',
+      llmProcessing: 'completed',
+      title: 'Roadmap Sync',
+      summary: 'The team aligned on meeting capture beta scope.',
+      polishedTranscript: 'You: We can ship the beta.\nOthers: I agree.',
+      transcriptFileName: 'raw-transcript.json',
+      transcriptSegments: [
+        {
+          id: 'seg-1',
+          streamId: 'microphone',
+          speaker: 'you',
+          text: 'We can ship the beta.',
+          beginMs: 1000,
+          endMs: 3000,
+          final: true,
+          createdAt: 1
+        },
+        {
+          id: 'seg-2',
+          streamId: 'system',
+          speaker: 'others',
+          text: 'I agree.',
+          beginMs: 4000,
+          endMs: 5000,
+          final: true,
+          createdAt: 2
+        }
+      ],
+      audio: {
+        url: 'tia-meeting-audio://meeting/meeting-1?v=1',
+        mimeType: 'audio/webm',
+        durationMs: 60_000,
+        sizeBytes: 2048
+      }
+    })
+
+    render(<MainAppWindow />)
+
+    fireEvent.click(await screen.findByRole('link', { name: /meetings/i }))
+    fireEvent.click(await screen.findByText('Roadmap Sync'))
+
+    await waitFor(() => {
+      expect(getMeetingDetailMock).toHaveBeenCalledWith('meeting-1')
+    })
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText(/^Summary$/)).toBeInTheDocument()
+    expect(
+      screen.getAllByText(/team aligned on meeting capture beta scope/i).length
+    ).toBeGreaterThan(0)
+    expect(screen.getByText(/^Polished transcript$/)).toBeInTheDocument()
+    expect(screen.getAllByText(/You: We can ship the beta/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(/^Raw transcript$/)).toBeInTheDocument()
+    expect(screen.getByText(/\[00:01\] You: We can ship the beta/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /play audio/i })).toBeInTheDocument()
+  })
+
+  it('shows raw meeting transcript when post-processing failed', async () => {
+    getMeetingHistoryPageMock.mockResolvedValue({
+      totalCount: 1,
+      items: [
+        {
+          id: 'meeting-1',
+          createdAt: 1,
+          updatedAt: 1,
+          startedAt: 1,
+          endedAt: 61_000,
+          durationMs: 60_000,
+          status: 'completed',
+          llmProcessing: 'failed',
+          title: 'Meeting capture',
+          summary: '',
+          polishedTranscript: '',
+          errorDetail: 'provider unavailable',
+          transcriptFileName: 'raw-transcript.json'
+        }
+      ]
+    })
+    getMeetingDetailMock.mockResolvedValue({
+      id: 'meeting-1',
+      createdAt: 1,
+      updatedAt: 1,
+      startedAt: 1,
+      endedAt: 61_000,
+      durationMs: 60_000,
+      status: 'completed',
+      llmProcessing: 'failed',
+      title: 'Meeting capture',
+      summary: '',
+      polishedTranscript: '',
+      errorDetail: 'provider unavailable',
+      transcriptFileName: 'raw-transcript.json',
+      transcriptSegments: [
+        {
+          id: 'seg-1',
+          streamId: 'system',
+          speaker: 'others',
+          text: 'The raw transcript survived.',
+          beginMs: 1000,
+          endMs: 3000,
+          final: true,
+          createdAt: 1
+        }
+      ]
+    })
+
+    render(<MainAppWindow />)
+
+    fireEvent.click(await screen.findByRole('link', { name: /meetings/i }))
+    fireEvent.click(await screen.findByText('Meeting capture'))
+
+    expect(await screen.findByText('provider unavailable')).toBeInTheDocument()
+    expect(screen.getByText(/\[00:01\] Others: The raw transcript survived/i)).toBeInTheDocument()
+  })
+
+  it('shows a quiet empty state for meetings', async () => {
+    render(<MainAppWindow />)
+
+    fireEvent.click(await screen.findByRole('link', { name: /meetings/i }))
+
+    expect(await screen.findByText(/no meeting captures yet/i)).toBeInTheDocument()
+    expect(screen.getByText(/control\+r/i)).toBeInTheDocument()
+  })
+
   it('opens the preset editor only from the edit action', async () => {
     render(<MainAppWindow />)
 
@@ -795,6 +1008,63 @@ describe('MainAppWindow', () => {
     expect(screen.getByRole('button', { name: /play audio/i })).toBeInTheDocument()
     expect(screen.getByRole('slider', { name: /seek audio/i })).toBeInTheDocument()
     expect(screen.getByTestId('audio-waveform')).toBeInTheDocument()
+  })
+
+  it('copies a saved transcription from history', async () => {
+    getMainAppStateMock.mockResolvedValue({
+      ...configuredState,
+      historySummary: {
+        totalCount: 1,
+        wordsSpoken: 2,
+        averageWpm: null
+      },
+      history: [
+        {
+          id: 'history-1',
+          createdAt: 1,
+          title: 'Voice transcription',
+          preview: 'Processed transcript.',
+          status: 'completed',
+          hasAudio: true,
+          canCopy: true
+        }
+      ]
+    })
+
+    render(<MainAppWindow />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /^copy$/i }))
+
+    await waitFor(() => {
+      expect(copyHistoryTextMock).toHaveBeenCalledWith('history-1')
+    })
+    expect(await screen.findByText('Copied to clipboard.')).toBeInTheDocument()
+  })
+
+  it('shows a copy fallback toast when dictation injection needs manual copy', async () => {
+    getMainAppStateMock.mockResolvedValue({
+      ...configuredState,
+      dictationFallback: {
+        historyId: 'history-1',
+        createdAt: 123,
+        preview: 'Dictated but not inserted.',
+        reason: 'input-not-focused' as const
+      }
+    })
+
+    render(<MainAppWindow />)
+
+    expect(await screen.findByText('Dictation is ready to copy')).toBeInTheDocument()
+    expect(screen.getByText('Dictated but not inserted.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /copy dictated text/i }))
+
+    await waitFor(() => {
+      expect(copyHistoryTextMock).toHaveBeenCalledWith('history-1')
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Dictation is ready to copy')).not.toBeInTheDocument()
+    })
   })
 
   it('shows only the recent history on the home screen and paginates the full history dialog', async () => {

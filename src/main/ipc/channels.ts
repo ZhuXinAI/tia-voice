@@ -5,8 +5,13 @@ import {
   type LanguagePreference
 } from '../../shared/i18n/config'
 import type { DictionaryEntryRecord } from '../../shared/dictionary'
+import type { LiveCaptionPreferences, LiveCaptionState } from '../../shared/liveCaption'
 import type { TtsStatePayload } from '../../shared/tts'
-import type { QuestionHistoryEntry } from '../config/settingsStore'
+import type {
+  HistoryInjectionReason,
+  HistoryInjectionStatus,
+  QuestionHistoryEntry
+} from '../config/settingsStore'
 
 export const IPC_CHANNELS = {
   recording: {
@@ -19,6 +24,27 @@ export const IPC_CHANNELS = {
     complete: 'question-recording:complete',
     failed: 'question-recording:failed',
     cancel: 'question-recording:cancel'
+  },
+  meetingCapture: {
+    command: 'meeting-capture:command',
+    pcmChunk: 'meeting-capture:pcm-chunk',
+    mixedAudioComplete: 'meeting-capture:mixed-audio-complete',
+    finishRequested: 'meeting-capture:finish-requested',
+    failed: 'meeting-capture:failed',
+    state: 'meeting-capture:state',
+    getHistoryPage: 'meeting-capture:get-history-page',
+    getDetail: 'meeting-capture:get-detail'
+  },
+  liveCaption: {
+    command: 'live-caption:command',
+    state: 'live-caption:state',
+    getState: 'live-caption:get-state',
+    start: 'live-caption:start',
+    stop: 'live-caption:stop',
+    pcmChunk: 'live-caption:pcm-chunk',
+    captureFailed: 'live-caption:capture-failed',
+    getPreferences: 'live-caption:get-preferences',
+    setPreferences: 'live-caption:set-preferences'
   },
   debug: {
     log: 'debug:log',
@@ -40,6 +66,7 @@ export const IPC_CHANNELS = {
     getHistoryPage: 'app:get-history-page',
     getQuestionHistoryPage: 'app:get-question-history-page',
     getHistoryEntryDebug: 'app:get-history-entry-debug',
+    copyHistoryText: 'app:copy-history-text',
     retryHistory: 'app:retry-history',
     startDictation: 'app:start-dictation',
     stopDictation: 'app:stop-dictation',
@@ -94,6 +121,7 @@ export type QuestionHistoryPagePayload = {
 }
 
 export type { TtsStatePayload }
+export type { LiveCaptionPreferences, LiveCaptionState }
 
 export type PermissionStatePayload = {
   kind: PermissionKind
@@ -154,6 +182,7 @@ export type MainAppStatePayload = {
   features: {
     autoTextToSpeech: boolean
   }
+  liveCaption: LiveCaptionPreferences
   dictionaryEntries: DictionaryEntryPayload[]
   postProcessPreset: PostProcessPresetId
   postProcessPresets: PostProcessPresetPayload[]
@@ -176,14 +205,25 @@ export type MainAppStatePayload = {
     microphone: PermissionStatePayload
   }
   autoUpdate: AutoUpdateStatePayload
+  dictationFallback: {
+    historyId: string
+    createdAt: number
+    preview: string
+    reason: HistoryInjectionReason
+    detail?: string
+  } | null
   history: Array<{
     id: string
     createdAt: number
     title: string
     preview: string
     status: 'pending' | 'completed' | 'failed'
+    injectionStatus?: HistoryInjectionStatus
+    injectionReason?: HistoryInjectionReason
+    injectionDetail?: string
     errorDetail?: string
     hasAudio: boolean
+    canCopy: boolean
   }>
   questionHistory: Array<
     Pick<

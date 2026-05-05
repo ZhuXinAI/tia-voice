@@ -1,6 +1,7 @@
 import { Button } from '@renderer/components/ui/button'
 import { useI18n } from '@renderer/i18n'
 import { cn } from '@renderer/lib/utils'
+import { Copy } from 'lucide-react'
 
 import type { MainAppHistoryEntry } from './types'
 import { toHumanTime } from './utils'
@@ -10,11 +11,12 @@ type HistoryEntryListProps = {
   retrying: Record<string, boolean>
   emptyMessage?: string
   onOpenDetails: (entry: MainAppHistoryEntry) => void
+  onCopy: (entryId: string) => void
   onRetry: (entryId: string) => Promise<void>
 }
 
 export function HistoryEntryList(props: HistoryEntryListProps): React.JSX.Element {
-  const { history, retrying, emptyMessage, onOpenDetails, onRetry } = props
+  const { history, retrying, emptyMessage, onOpenDetails, onCopy, onRetry } = props
   const { t } = useI18n()
   const resolvedEmptyMessage = emptyMessage ?? t('history.empty')
   const statusLabel = (status: MainAppHistoryEntry['status']): string =>
@@ -64,20 +66,38 @@ export function HistoryEntryList(props: HistoryEntryListProps): React.JSX.Elemen
             <p className="mt-2 text-xs text-destructive">{entry.errorDetail}</p>
           ) : null}
 
-          {entry.status === 'failed' && entry.hasAudio ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-3"
-              disabled={Boolean(retrying[entry.id])}
-              onClick={(event) => {
-                event.stopPropagation()
-                void onRetry(entry.id)
-              }}
-              type="button"
-            >
-              {retrying[entry.id] ? t('history.retrying') : t('history.retry')}
-            </Button>
+          {entry.canCopy || (entry.status === 'failed' && entry.hasAudio) ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {entry.canCopy ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    void onCopy(entry.id)
+                  }}
+                  type="button"
+                >
+                  <Copy aria-hidden="true" />
+                  {t('history.copy')}
+                </Button>
+              ) : null}
+
+              {entry.status === 'failed' && entry.hasAudio ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={Boolean(retrying[entry.id])}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    void onRetry(entry.id)
+                  }}
+                  type="button"
+                >
+                  {retrying[entry.id] ? t('history.retrying') : t('history.retry')}
+                </Button>
+              ) : null}
+            </div>
           ) : null}
         </div>
       ))}

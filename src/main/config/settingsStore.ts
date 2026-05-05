@@ -27,6 +27,11 @@ import {
   normalizeDictionaryEntries,
   type DictionaryEntryRecord
 } from '../../shared/dictionary'
+import {
+  DEFAULT_LIVE_CAPTION_PREFERENCES,
+  normalizeLiveCaptionPreferences,
+  type LiveCaptionPreferences
+} from '../../shared/liveCaption'
 
 export type ProviderKind = 'dashscope' | 'openai'
 
@@ -42,6 +47,9 @@ export type HistoryEntry = {
   cleanedText: string
   status: 'pending' | 'completed' | 'failed'
   llmProcessing: 'pending' | 'completed' | 'skipped' | 'failed'
+  injectionStatus?: HistoryInjectionStatus
+  injectionReason?: HistoryInjectionReason
+  injectionDetail?: string
   errorDetail?: string
   audio?: {
     fileName: string
@@ -50,6 +58,9 @@ export type HistoryEntry = {
     sizeBytes: number
   }
 }
+
+export type HistoryInjectionStatus = 'pasted' | 'needs-copy'
+export type HistoryInjectionReason = 'input-not-focused' | 'paste-failed'
 
 export type QuestionHistoryEntry = {
   id: string
@@ -74,6 +85,7 @@ export type AppSettings = {
   hotkey: TriggerKey
   provider: ProviderKind
   microphone: MicrophonePreference
+  liveCaption: LiveCaptionPreferences
   languagePreference: LanguagePreference
   themeMode: ThemeMode
   features: FeatureSettings
@@ -101,6 +113,8 @@ export type SettingsStore = {
   setProviderLlmModel(provider: ProviderKind, model: string): void
   getMicrophone(): MicrophonePreference
   setMicrophone(preference: MicrophonePreference): void
+  getLiveCaptionPreferences(): LiveCaptionPreferences
+  setLiveCaptionPreferences(preferences: LiveCaptionPreferences): void
   appendHistory(entry: HistoryEntry): void
   getHistoryPage(input?: { offset?: number; limit?: number }): {
     items: HistoryEntry[]
@@ -174,6 +188,7 @@ type PersistedSettings = {
   hotkey: TriggerKey
   provider?: ProviderKind
   microphone?: Partial<MicrophonePreference>
+  liveCaption?: Partial<LiveCaptionPreferences>
   languagePreference?: LanguagePreference
   themeMode: ThemeMode
   features?: Partial<FeatureSettings>
@@ -233,6 +248,14 @@ function normalizeHistoryEntry(entry: Partial<HistoryEntry> & { id: string }): H
     entry.status === 'pending' || entry.status === 'completed' || entry.status === 'failed'
       ? entry.status
       : 'completed'
+  const injectionStatus =
+    entry.injectionStatus === 'pasted' || entry.injectionStatus === 'needs-copy'
+      ? entry.injectionStatus
+      : undefined
+  const injectionReason =
+    entry.injectionReason === 'input-not-focused' || entry.injectionReason === 'paste-failed'
+      ? entry.injectionReason
+      : undefined
 
   return {
     id: entry.id,
@@ -254,6 +277,9 @@ function normalizeHistoryEntry(entry: Partial<HistoryEntry> & { id: string }): H
           : status === 'failed'
             ? 'failed'
             : 'completed',
+    injectionStatus,
+    injectionReason,
+    injectionDetail: typeof entry.injectionDetail === 'string' ? entry.injectionDetail : undefined,
     errorDetail: typeof entry.errorDetail === 'string' ? entry.errorDetail : undefined,
     audio:
       entry.audio &&
@@ -392,8 +418,7 @@ function normalizeOnboardingState(value: unknown): OnboardingState {
 
 function normalizeFeatureSettings(value: unknown): FeatureSettings {
   return {
-    autoTextToSpeech:
-      (value as Partial<FeatureSettings> | undefined)?.autoTextToSpeech === true
+    autoTextToSpeech: (value as Partial<FeatureSettings> | undefined)?.autoTextToSpeech === true
   }
 }
 
@@ -452,6 +477,7 @@ export function createSettingsStore(
       deviceId: null,
       label: null
     },
+    liveCaption: DEFAULT_LIVE_CAPTION_PREFERENCES,
     languagePreference: 'system',
     themeMode: 'system',
     features: {
@@ -506,6 +532,7 @@ export function createSettingsStore(
             : defaultHotkey,
         provider,
         microphone: normalizeMicrophonePreference(parsed.microphone),
+        liveCaption: normalizeLiveCaptionPreferences(parsed.liveCaption),
         languagePreference: normalizeLanguagePreference(parsed.languagePreference),
         themeMode: normalizeThemeMode(parsed.themeMode),
         features: normalizeFeatureSettings(parsed.features),
@@ -537,6 +564,7 @@ export function createSettingsStore(
         deviceId: state.microphone.deviceId,
         label: state.microphone.label
       },
+      liveCaption: { ...state.liveCaption },
       languagePreference: state.languagePreference,
       themeMode: state.themeMode,
       features: {
@@ -568,6 +596,7 @@ export function createSettingsStore(
         ...state,
         providers: { ...providerModels[state.provider] },
         microphone: { ...state.microphone },
+        liveCaption: { ...state.liveCaption },
         languagePreference: state.languagePreference,
         features: {
           autoTextToSpeech: state.features.autoTextToSpeech
@@ -649,6 +678,23 @@ export function createSettingsStore(
       }
 
       state.microphone = nextPreference
+      persistState()
+    },
+    getLiveCaptionPreferences(): LiveCaptionPreferences {
+      return { ...state.liveCaption }
+    },
+    setLiveCaptionPreferences(preferences: LiveCaptionPreferences): void {
+      const nextPreferences = normalizeLiveCaptionPreferences(preferences)
+      if (
+        state.liveCaption.sourceLanguage === nextPreferences.sourceLanguage &&
+        state.liveCaption.targetLanguage === nextPreferences.targetLanguage &&
+        state.liveCaption.showOriginalWhenTranslating ===
+          nextPreferences.showOriginalWhenTranslating
+      ) {
+        return
+      }
+
+      state.liveCaption = nextPreferences
       persistState()
     },
     setLanguagePreference(languagePreference: LanguagePreference): void {

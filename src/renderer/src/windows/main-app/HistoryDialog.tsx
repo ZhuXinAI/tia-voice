@@ -24,6 +24,7 @@ type HistoryDialogProps = {
   onPreviousPage: () => void
   onNextPage: () => void
   onOpenDetails: (entry: MainAppHistoryEntry) => void
+  onCopy: (entryId: string) => void
   onRetry: (entryId: string) => Promise<void>
 }
 
@@ -40,6 +41,7 @@ export function HistoryDialog(props: HistoryDialogProps): React.JSX.Element {
     onPreviousPage,
     onNextPage,
     onOpenDetails,
+    onCopy,
     onRetry
   } = props
   const { t } = useI18n()
@@ -59,6 +61,7 @@ export function HistoryDialog(props: HistoryDialogProps): React.JSX.Element {
             history={history}
             retrying={retrying}
             onOpenDetails={onOpenDetails}
+            onCopy={onCopy}
             onRetry={onRetry}
           />
         )}

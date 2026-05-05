@@ -70,6 +70,7 @@
     "uiohook-napi": "^1.5.5",
     "when-exit": "^2.1.5",
     "wrappy": "^1.0.2",
+    "ws": "^8.20.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -83,6 +84,7 @@
     "@types/node": "^22.19.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.1.1",
     "electron": "^39.2.6",
     "electron-builder": "^26.0.12",

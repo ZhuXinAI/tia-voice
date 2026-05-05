@@ -7,7 +7,7 @@ import {
   MessageCircleQuestion,
   Settings2,
   ShieldAlert,
-  SunMoon,
+  SunMoon
 } from 'lucide-react'
 
 import { Button } from '@renderer/components/ui/button'
@@ -537,6 +537,17 @@ export function SettingsDialog(props: SettingsDialogProps): React.JSX.Element {
                               {hotkeyPending === option.id ? t('settings.saving') : option.label}
                             </Button>
                           ))}
+                        </div>
+                        <div className="rounded-lg border border-border/70 bg-muted/40 px-3 py-2 text-sm">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="font-medium">
+                              {t('settings.shortcut.liveCaption')}
+                            </span>
+                            <span className="font-mono text-xs text-muted-foreground">Ctrl+L</span>
+                          </div>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {t('settings.shortcut.liveCaptionDetail')}
+                          </p>
                         </div>
                       </div>
                     </div>
